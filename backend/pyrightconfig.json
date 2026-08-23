@@ -1,0 +1,10 @@
+{
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "standard",
+  "include": ["app"],
+  "exclude": ["**/__pycache__", ".venv", "alembic"],
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false
+}

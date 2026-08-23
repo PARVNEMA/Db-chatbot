@@ -1,0 +1,18 @@
+fastapi
+uvicorn[standard]
+sqlalchemy[asyncio]
+asyncpg
+alembic
+pydantic-settings
+langgraph
+langchain
+langchain-anthropic
+pgvector
+python-jose[cryptography]
+passlib[bcrypt]
+cryptography
+langsmith
+# --- Logging ---
+structlog==24.4.0
+# --- Configuration ---
+python-dotenv==1.0.1
