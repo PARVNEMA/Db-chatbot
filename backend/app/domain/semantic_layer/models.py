@@ -1,29 +1,40 @@
-"""
+﻿"""
 SemanticLayer domain — SQLAlchemy ORM model.
 
-`SemanticMetadata` stores optional, user-editable business context
-layered over an introspected schema: descriptions, glossary terms,
-sample values, and curated join hints. Scoped to one `Project`.
+`SchemaAnnotation` stores user-added notes/annotations for tables and columns
+surfaced in the Schema Explorer UI after scanning.
 """
 
+from __future__ import annotations
+
 import uuid
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, func
-from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import CheckConstraint, ForeignKey, String, Text
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.db import Base
+from app.db.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.domain.schema_introspection.models import SchemaColumn, SchemaTable
 
 
-class SemanticMetadata(Base):
-    __tablename__ = "semantic_metadata"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+class SchemaAnnotation(TimestampMixin, Base):
+    __tablename__ = "schema_annotations"
+    __table_args__ = (
+        CheckConstraint(
+            "(target_type = 'table' AND schema_table_id IS NOT NULL AND schema_column_id IS NULL) OR "
+            "(target_type = 'column' AND schema_column_id IS NOT NULL AND schema_table_id IS NULL)",
+            name="ck_schema_annotations_target_type",
+        ),
     )
+
     project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     connection_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -31,15 +42,30 @@ class SemanticMetadata(Base):
         nullable=False,
         index=True,
     )
-    # Target entity: "table" or "column"
-    entity_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    entity_name: Mapped[str] = mapped_column(String(512), nullable=False)
-    # Flexible metadata payload:
-    # {"description": str, "glossary_terms": [...], "sample_values": [...], "join_hints": [...]}
-    metadata_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
+    schema_table_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schema_tables.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    schema_column_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("schema_columns.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    target_type: Mapped[str] = mapped_column(
+        String(10), nullable=False
+    )  # "table" | "column"
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+
+    table: Mapped[SchemaTable | None] = relationship(
+        "SchemaTable",
+        back_populates="annotations",
+        foreign_keys=[schema_table_id],
+    )
+    column: Mapped[SchemaColumn | None] = relationship(
+        "SchemaColumn",
+        back_populates="annotations",
+        foreign_keys=[schema_column_id],
     )

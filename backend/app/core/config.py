@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # --- Platform (metadata) database ---
     DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://platform:change_me@localhost:5432/platform_db"
+        default="postgresql+asyncpg://platform:change_me@postgres:5432/platform_db"
     )
     DB_POOL_SIZE: int = Field(default=5)
     DB_MAX_OVERFLOW: int = Field(default=10)

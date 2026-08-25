@@ -1,35 +1,44 @@
-"""
+﻿"""
 Projects domain — SQLAlchemy ORM model.
 
-`Project` is the root multi-tenant isolation boundary.
-Every other entity (Connection, SchemaCache, SemanticMetadata, ChatSession)
+`Project` is the root multi-tenant isolation boundary, owned by a `User`.
+Every other entity (Connection, SchemaCache, SchemaAnnotations, ChatSession)
 carries a foreign-key reference to `Project.id`.
 """
 
+from __future__ import annotations
+
 import uuid
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db.base import Base
+from app.db.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.domain.auth.models import User
+    from app.domain.chat.models import ChatSession
+    from app.domain.connections.models import Connection
 
 
-class Project(Base):
+class Project(TimestampMixin, Base):
     __tablename__ = "projects"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(String(1024), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+
+    owner: Mapped[User] = relationship("User", back_populates="projects")
+    connection: Mapped[Connection | None] = relationship(
+        "Connection", back_populates="project", uselist=False, cascade="all, delete-orphan"
     )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
+    chat_sessions: Mapped[list[ChatSession]] = relationship(
+        "ChatSession", back_populates="project", cascade="all, delete-orphan"
     )

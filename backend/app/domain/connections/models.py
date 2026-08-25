@@ -1,28 +1,36 @@
-"""
+﻿"""
 Connections domain — SQLAlchemy ORM model.
 
 `Connection` stores encrypted credentials and dialect info for
-a user-supplied target database, scoped strictly to one `Project`.
+a user-supplied target database, scoped strictly to one `Project` (1:1).
 """
 
-import uuid
-from datetime import datetime
+from __future__ import annotations
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+import uuid
+from typing import TYPE_CHECKING
+
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.db import Base
+from app.db.base import Base, TimestampMixin
+
+if TYPE_CHECKING:
+    from app.domain.chat.models import ChatSession
+    from app.domain.projects.models import Project
+    from app.domain.schema_introspection.models import SchemaCache
 
 
-class Connection(Base):
+class Connection(TimestampMixin, Base):
     __tablename__ = "connections"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
     project_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+        index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     dialect: Mapped[str] = mapped_column(
@@ -30,12 +38,11 @@ class Connection(Base):
     )  # e.g. "postgresql", "mysql", "mssql", "snowflake"
     # Encrypted via Fernet before insert; decrypted ONLY inside ConnectionManager
     encrypted_connection_string: Mapped[str] = mapped_column(String(2048), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
+
+    project: Mapped[Project] = relationship("Project", back_populates="connection")
+    schema_cache: Mapped[SchemaCache | None] = relationship(
+        "SchemaCache", back_populates="connection", uselist=False, cascade="all, delete-orphan"
     )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
+    chat_sessions: Mapped[list[ChatSession]] = relationship(
+        "ChatSession", back_populates="connection", cascade="all, delete-orphan"
     )

@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.core.db import Base
 
 # Import all models so their metadata is registered for autogenerate
+import app.domain.auth.models  # noqa: F401
 import app.domain.projects.models  # noqa: F401
 import app.domain.connections.models  # noqa: F401
 import app.domain.schema_introspection.models  # noqa: F401
@@ -28,8 +29,17 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+import os
+
+def get_database_url() -> str:
+    url = os.getenv("DATABASE_URL") or settings.DATABASE_URL
+    if not url:
+        url = "postgresql+asyncpg://platform:change_me@postgres:5432/platform_db"
+    return url
+
+
 def run_migrations_offline() -> None:
-    url = settings.DATABASE_URL
+    url = get_database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -41,7 +51,7 @@ def run_migrations_offline() -> None:
 
 
 async def run_migrations_online() -> None:
-    connectable = create_async_engine(settings.DATABASE_URL)
+    connectable = create_async_engine(get_database_url())
     async with connectable.connect() as connection:
         await connection.run_sync(
             lambda sync_conn: context.configure(

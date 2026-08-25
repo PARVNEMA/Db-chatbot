@@ -1,0 +1,132 @@
+﻿================================================================================
+  ALEMBIC MIGRATION COMMANDS (DOCKER & LOCAL)
+  Natural Language Database Querying Platform
+================================================================================
+
+--------------------------------------------------------------------------------
+1. PREREQUISITES & STARTING DOCKER CONTAINERS
+--------------------------------------------------------------------------------
+
+Start Postgres (with pgvector) and Backend services:
+  docker compose up -d postgres backend
+
+Verify running containers:
+  docker compose ps
+
+Check backend logs to ensure database connectivity:
+  docker compose logs -f backend
+
+Ensure PostgreSQL has the pgvector extension enabled (run once):
+  docker compose exec postgres psql -U ${env postgres username} -d {env postgrees platform name} -c "CREATE EXTENSION IF NOT EXISTS vector;"
+
+
+--------------------------------------------------------------------------------
+2. GENERATING MIGRATIONS (AUTOGENERATE)
+--------------------------------------------------------------------------------
+
+Create initial schema migration from SQLAlchemy models:
+  docker compose exec backend alembic revision --autogenerate -m "initial_schema"
+
+Create subsequent feature migration:
+  docker compose exec backend alembic revision --autogenerate -m "add_new_feature"
+
+Create an empty migration script (for manual SQL or custom logic):
+  docker compose exec backend alembic revision -m "custom_data_migration"
+
+
+--------------------------------------------------------------------------------
+3. APPLYING MIGRATIONS (UPGRADE)
+--------------------------------------------------------------------------------
+
+Apply all pending migrations up to the latest revision (head):
+  docker compose exec backend alembic upgrade head
+
+Apply one step forward:
+  docker compose exec backend alembic upgrade +1
+
+Apply up to a specific revision ID:
+  docker compose exec backend alembic upgrade <revision_id>
+
+Run SQL in offline mode without applying directly (dry run / generate SQL):
+  docker compose exec backend alembic upgrade head --sql
+
+
+--------------------------------------------------------------------------------
+4. ROLLING BACK MIGRATIONS (DOWNGRADE)
+--------------------------------------------------------------------------------
+
+Revert the most recent migration (1 step back):
+  docker compose exec backend alembic downgrade -1
+
+Revert to a specific revision ID:
+  docker compose exec backend alembic downgrade <revision_id>
+
+Revert all migrations back to base (CAUTION: drops all tables):
+  docker compose exec backend alembic downgrade base
+
+
+--------------------------------------------------------------------------------
+5. INSPECTING STATUS & HISTORY
+--------------------------------------------------------------------------------
+
+Show the current active migration revision:
+  docker compose exec backend alembic current
+
+Show the full migration history:
+  docker compose exec backend alembic history --verbose
+
+Show the latest heads:
+  docker compose exec backend alembic heads
+
+
+--------------------------------------------------------------------------------
+6. RUNNING WITH DOCKER COMPOSE RUN (IF BACKEND CONTAINER IS NOT RUNNING)
+--------------------------------------------------------------------------------
+
+If the backend container is stopped, you can execute one-off commands:
+  docker compose run --rm backend alembic revision --autogenerate -m "initial_schema"
+  docker compose run --rm backend alembic upgrade head
+
+
+--------------------------------------------------------------------------------
+7. LOCAL DEVELOPMENT (WITHOUT DOCKER / DIRECT IN VENV)
+--------------------------------------------------------------------------------
+
+From the repository backend directory:
+  cd backend
+
+Activate virtual environment:
+  # Windows PowerShell:
+  .venv\Scripts\Activate.ps1
+  # Linux/macOS:
+  source .venv/bin/activate
+
+Run Alembic commands directly:
+  alembic revision --autogenerate -m "initial_schema"
+  alembic upgrade head
+  alembic current
+  alembic history --verbose
+  alembic downgrade -1
+
+
+--------------------------------------------------------------------------------
+8. DIRECT DATABASE VERIFICATION VIA PSQL
+--------------------------------------------------------------------------------
+
+Connect to platform database CLI:
+  docker compose exec postgres psql -U platform -d platform_db
+
+List all tables created by Alembic:
+  \dt
+
+Inspect a specific table:
+  \d projects
+  \d chat_messages
+  \d query_runs
+
+Check alembic_version table:
+  SELECT * FROM alembic_version;
+
+Exit psql:
+  \q
+================================================================================
