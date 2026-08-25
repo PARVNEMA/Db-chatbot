@@ -34,15 +34,14 @@ def setup_logging() -> None:
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
         structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
+        structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S", utc=False),
         structlog.processors.UnicodeDecoder(),
     ]
 
     if is_dev:
-        # Pretty, coloured output for local development.
+        # Pretty, coloured, and readable output for local development.
         renderer: structlog.types.Processor = (
-            structlog.dev.ConsoleRenderer()
+            structlog.dev.ConsoleRenderer(colors=True, pad_event=25)
         )
     else:
         # Machine-readable JSON for production.

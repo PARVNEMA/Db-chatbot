@@ -5,12 +5,14 @@ from app.dependencies.auth import (
     get_current_active_user,
     get_current_superuser,
     get_current_user,
+    http_bearer,
     oauth2_scheme,
 )
 from app.dependencies.pagination import Pagination, PaginationParams
 
 __all__ = [
     "DbSession",
+    "http_bearer",
     "oauth2_scheme",
     "get_current_user",
     "get_current_active_user",

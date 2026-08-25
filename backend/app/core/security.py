@@ -13,6 +13,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt
 from cryptography.fernet import Fernet, InvalidToken
 from jose import JWTError, jwt
 
@@ -43,6 +44,31 @@ def decrypt(token: str) -> str:
         return _get_fernet().decrypt(token.encode()).decode()
     except InvalidToken as exc:
         raise ValueError("Failed to decrypt connection string — invalid token or key.") from exc
+
+
+# Aliases adhering to AGENTS.md naming conventions
+encrypt_secret = encrypt
+decrypt_secret = decrypt
+
+
+# ── Password hashing ─────────────────────────────────────────────────────────
+
+
+def get_password_hash(password: str) -> str:
+    """Hash a plaintext password using bcrypt."""
+    pwd_bytes = password.encode("utf-8")[:72]
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plaintext password against an existing bcrypt hash."""
+    try:
+        pwd_bytes = plain_password.encode("utf-8")[:72]
+        hash_bytes = hashed_password.encode("utf-8")
+        return bcrypt.checkpw(pwd_bytes, hash_bytes)
+    except Exception:
+        return False
 
 
 # ── JWT authentication ────────────────────────────────────────────────────────

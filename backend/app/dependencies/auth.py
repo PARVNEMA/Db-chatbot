@@ -10,7 +10,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import Depends
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,38 +18,32 @@ from app.core.config import get_settings
 from app.core.exceptions import ForbiddenException, UnauthorizedException
 from app.core.security import verify_token
 from app.db.session import get_db
-
-# ---------------------------------------------------------------------------
-# NOTE: app.domain.auth.models / app.domain.auth.crud are not yet implemented.
-# The User model and user_crud are imported lazily so this module remains
-# importable even before those domain files exist.  Remove the TYPE_CHECKING
-# guard and the TODO comments once the auth domain is scaffolded.
-# ---------------------------------------------------------------------------
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from app.domain.auth.models import User  # TODO: create this module
+from app.domain.auth.models import User
+from app.domain.auth.repository import UserRepository
 
 settings = get_settings()
 
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl=f"{settings.API_V1_PREFIX}/auth/login",
+http_bearer = HTTPBearer(
+    auto_error=True,
+    description="Enter JWT access token directly",
 )
+oauth2_scheme = http_bearer
 
 # Annotated shorthand for injecting the DB session (use in route signatures).
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
 async def get_current_user(
-    token: Annotated[str, Depends(oauth2_scheme)],
+    credentials: Annotated[HTTPAuthorizationCredentials, Depends(http_bearer)],
     db: DbSession,
-) -> "User":
+) -> User:
     """Decode the JWT and return the corresponding ``User``.
 
     Raises:
         UnauthorizedException: If the token is invalid or the user
             does not exist.
     """
+    token = credentials.credentials
     try:
         payload = verify_token(token)
         user_id_str: str | None = payload.get("sub")
@@ -63,36 +57,34 @@ async def get_current_user(
     except (ValueError, TypeError):
         raise UnauthorizedException(detail="Invalid token: bad subject format")
 
-    # TODO: replace with real user_crud once app.domain.auth is implemented.
-    from app.domain.auth.crud import user_crud  # type: ignore[import-not-found]
-
-    user = await user_crud.get(db, id=user_id)
+    repo = UserRepository(db)
+    user = await repo.get_by_id(user_id)
     if user is None:
         raise UnauthorizedException(detail="User not found")
-    return user  # type: ignore[return-value]
+    return user
 
 
 async def get_current_active_user(
-    current_user: Annotated["User", Depends(get_current_user)],
-) -> "User":
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> User:
     """Return the current user only if their account is active.
 
     Raises:
         ForbiddenException: If the user account is deactivated.
     """
-    if not current_user.is_active:  # type: ignore[union-attr]
+    if not current_user.is_active:
         raise ForbiddenException(detail="Inactive user account")
     return current_user
 
 
 async def get_current_superuser(
-    current_user: Annotated["User", Depends(get_current_active_user)],
-) -> "User":
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> User:
     """Return the current user only if they are a superuser.
 
     Raises:
         ForbiddenException: If the user is not a superuser.
     """
-    if not current_user.is_superuser:  # type: ignore[union-attr]
+    if not current_user.is_superuser:
         raise ForbiddenException(detail="Superuser access required")
     return current_user

@@ -1,6 +1,6 @@
-# AI Agent Guidelines & Coding Standards
+# AI Agent Guidelines & Coding Standards for Backend
 
-This document establishes mandatory coding standards, architectural rules, and behavior guidelines for all AI agents working on this codebase.
+This document establishes mandatory coding standards, architectural rules, and behavior guidelines for all AI agents working on this codebase especially backend.
 
 ---
 

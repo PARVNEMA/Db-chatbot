@@ -74,55 +74,57 @@ class PaginatedData(BaseModel, Generic[T]):
 
 
 def success_response(
-    data: Any = None,
+    data: T | None = None,
     message: str = "Operation completed successfully",
-) -> dict[str, Any]:
-    """Helper to construct a success response dictionary."""
-    return {
-        "success": True,
-        "message": message,
-        "data": data,
-        "error": None,
-    }
+) -> ApiResponse[T]:
+    """Helper to construct a standardized success ApiResponse model."""
+    return ApiResponse[T](
+        success=True,
+        message=message,
+        data=data,
+        error=None,
+    )
 
 
 def error_response(
     code: str,
     message: str,
     details: Any | None = None,
-) -> dict[str, Any]:
-    """Helper to construct an error response dictionary."""
-    return {
-        "success": False,
-        "message": message,
-        "data": None,
-        "error": {
-            "code": code,
-            "message": message,
-            "details": details,
-        },
-    }
+) -> ApiResponse[None]:
+    """Helper to construct a standardized error ApiResponse model."""
+    return ApiResponse[None](
+        success=False,
+        message=message,
+        data=None,
+        error=ErrorDetail(
+            code=code,
+            message=message,
+            details=details,
+        ),
+    )
 
 
 def paginated_response(
-    items: list[Any],
+    items: list[T],
     total: int,
     skip: int = 0,
     limit: int = 20,
     message: str = "Records retrieved successfully",
-) -> dict[str, Any]:
-    """Helper to construct a standardized paginated ApiResponse dictionary.
+) -> ApiResponse[PaginatedData[T]]:
+    """Helper to construct a standardized paginated ApiResponse model.
 
     The paginated payload (`items`, `total`, `skip`, `limit`) is wrapped
     strictly inside the `data` field of the `ApiResponse`.
     """
-    return success_response(
-        data={
-            "items": items,
-            "total": total,
-            "skip": skip,
-            "limit": limit,
-        },
+    return ApiResponse[PaginatedData[T]](
+        success=True,
         message=message,
+        data=PaginatedData[T](
+            items=items,
+            total=total,
+            skip=skip,
+            limit=limit,
+        ),
+        error=None,
     )
 

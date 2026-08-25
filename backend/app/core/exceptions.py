@@ -176,6 +176,20 @@ def _build_error_body(
     }
 
 
+def _format_validation_errors(errors: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Convert raw Pydantic/FastAPI validation errors into clean, concise dictionaries."""
+    formatted: list[dict[str, str]] = []
+    for err in errors:
+        loc_parts = [str(item) for item in err.get("loc", []) if item != "body"]
+        field_name = " -> ".join(loc_parts) if loc_parts else "body"
+        msg = err.get("msg", "Invalid value")
+        formatted.append({
+            "field": field_name,
+            "message": msg,
+        })
+    return formatted
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Register custom exception handlers on the FastAPI application.
 
@@ -183,7 +197,14 @@ def register_exception_handlers(app: FastAPI) -> None:
     """
 
     @app.exception_handler(AppException)
-    async def app_exception_handler(_request: Request, exc: AppException) -> JSONResponse:
+    async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
+        logger.warning(
+            "[%s] %s %s -> %s",
+            exc.error_code,
+            request.method,
+            request.url.path,
+            exc.detail,
+        )
         return JSONResponse(
             status_code=exc.status_code,
             content=_build_error_body(
@@ -196,20 +217,35 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
-        _request: Request, exc: RequestValidationError
+        request: Request, exc: RequestValidationError
     ) -> JSONResponse:
+        clean_errors = _format_validation_errors(exc.errors())
+        error_summary = "; ".join(f"{e['field']}: {e['message']}" for e in clean_errors)
+        logger.warning(
+            "[VALIDATION_ERROR] %s %s -> %s",
+            request.method,
+            request.url.path,
+            error_summary or "Request validation failed",
+        )
         return JSONResponse(
             status_code=422,
             content=_build_error_body(
-                message="Request validation failed",
+                message=f"Validation failed: {error_summary}" if error_summary else "Request validation failed",
                 code="VALIDATION_ERROR",
-                details=exc.errors(),
+                details=clean_errors,
             ),
         )
 
     @app.exception_handler(Exception)
-    async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("Unhandled exception: %s", exc)
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+        logger.error(
+            "[INTERNAL_ERROR] %s %s -> %s: %s",
+            request.method,
+            request.url.path,
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
         return JSONResponse(
             status_code=500,
             content=_build_error_body(

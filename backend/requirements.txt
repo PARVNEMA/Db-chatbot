@@ -3,7 +3,9 @@ uvicorn[standard]
 sqlalchemy[asyncio]
 asyncpg
 alembic
+pydantic[email]
 pydantic-settings
+email-validator
 langgraph
 langchain
 langchain-anthropic
