@@ -2,16 +2,46 @@
 Shared pytest fixtures for the test suite.
 
 Provides:
-- An in-memory (or test-DB) AsyncSession for unit tests.
+- An in-memory (or test-DB) AsyncSession for unit tests with PostgreSQL type polyfills.
 - A TestClient wrapping the FastAPI app.
 """
 
+from collections.abc import AsyncGenerator
+from typing import Any
+
 import pytest
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from httpx import ASGITransport, AsyncClient
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import JSON
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.ext.compiler import compiles
+from sqlalchemy.pool import StaticPool
 
 from app.core.db import Base, get_db
 from app.main import app
+
+
+# Polyfill Postgres-specific types for SQLite test dialect
+@compiles(JSONB, "sqlite")
+def compile_jsonb_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+    return compiler.visit_JSON(JSON(), **kw)
+
+
+@compiles(UUID, "sqlite")
+def compile_uuid_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+    return "CHAR(36)"
+
+
+@compiles(Vector, "sqlite")
+def compile_vector_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+    return "TEXT"
+
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -22,8 +52,13 @@ def anyio_backend() -> str:
 
 
 @pytest.fixture(scope="session")
-async def test_engine():
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
+    engine = create_async_engine(
+        TEST_DATABASE_URL,
+        echo=False,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield engine
@@ -33,15 +68,15 @@ async def test_engine():
 
 
 @pytest.fixture()
-async def db_session(test_engine) -> AsyncSession:
-    SessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+async def db_session(test_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+    SessionLocal = async_sessionmaker(test_engine, expire_on_commit=False)
     async with SessionLocal() as session:
         yield session
 
 
 @pytest.fixture()
-async def client(db_session: AsyncSession) -> AsyncClient:
-    async def override_get_db():
+async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db

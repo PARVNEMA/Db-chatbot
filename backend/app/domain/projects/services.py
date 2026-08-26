@@ -1,44 +1,68 @@
 """
 Projects domain — service layer.
 
-Orchestrates business logic and delegates persistence to `ProjectRepository`.
+Orchestrates business logic, transaction boundaries, and delegates persistence
+to `ProjectRepository`. Enforces tenant boundaries and domain exceptions.
 """
 
-import uuid
-from typing import Annotated
+from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+import uuid
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db import get_db
+from app.core.exceptions import NotFoundException
+from app.dependencies.auth import DbSession
+from app.dependencies.pagination import PaginationParams
 from app.domain.projects.models import Project
 from app.domain.projects.repository import ProjectRepository
 from app.domain.projects.schemas import ProjectCreate, ProjectUpdate
 
 
 class ProjectService:
-    def __init__(self, db: Annotated[AsyncSession, Depends(get_db)]) -> None:
+    """Domain service managing project workflows and multi-tenant isolation."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
         self._repo = ProjectRepository(db)
 
-    async def create_project(self, payload: ProjectCreate) -> Project:
-        return await self._repo.create(payload)
+    async def create_project(self, data: ProjectCreate, owner_id: uuid.UUID) -> Project:
+        """Create a new project for the authenticated user."""
+        return await self._repo.create(owner_id=owner_id, payload=data)
 
-    async def get_project_or_404(self, project_id: uuid.UUID) -> Project:
-        project = await self._repo.get_by_id(project_id)
+    async def get_project(self, project_id: uuid.UUID, owner_id: uuid.UUID) -> Project:
+        """Retrieve a project by ID ensuring ownership."""
+        project = await self._repo.get_by_id(project_id=project_id, owner_id=owner_id)
         if project is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Project {project_id} not found.",
+            raise NotFoundException(
+                detail=f"Project with ID '{project_id}' was not found.",
+                error_code="PROJECT_NOT_FOUND",
             )
         return project
 
-    async def list_projects(self) -> list[Project]:
-        return await self._repo.list_all()
+    async def list_projects(
+        self, owner_id: uuid.UUID, pagination: PaginationParams
+    ) -> tuple[list[Project], int]:
+        """List paginated projects belonging to the owner."""
+        return await self._repo.list_by_owner(
+            owner_id=owner_id,
+            skip=pagination.skip,
+            limit=pagination.limit,
+        )
 
-    async def update_project(self, project_id: uuid.UUID, payload: ProjectUpdate) -> Project:
-        project = await self.get_project_or_404(project_id)
-        return await self._repo.update(project, payload)
+    async def update_project(
+        self, project_id: uuid.UUID, data: ProjectUpdate, owner_id: uuid.UUID
+    ) -> Project:
+        """Update an existing project after validating ownership."""
+        project = await self.get_project(project_id=project_id, owner_id=owner_id)
+        return await self._repo.update(project=project, payload=data)
 
-    async def delete_project(self, project_id: uuid.UUID) -> None:
-        project = await self.get_project_or_404(project_id)
-        await self._repo.delete(project)
+    async def delete_project(self, project_id: uuid.UUID, owner_id: uuid.UUID) -> None:
+        """Delete a project after validating ownership."""
+        project = await self.get_project(project_id=project_id, owner_id=owner_id)
+        await self._repo.delete(project=project)
+
+
+def get_project_service(db: DbSession) -> ProjectService:
+    """FastAPI dependency provider for ProjectService."""
+    return ProjectService(db=db)

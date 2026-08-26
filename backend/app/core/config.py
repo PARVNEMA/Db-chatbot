@@ -47,7 +47,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60)
 
     # --- Credential encryption (Fernet) ---
-    FERNET_KEY: str = Field(default="")
+    # Default 32-byte url-safe base64 key for test/dev; override in .env for production
+    FERNET_KEY: str = Field(default="q1M8rN0sK2vP4_tX6wZ8yB0cE2gH4jL6nQ8sU0wY2zA=")
 
     # --- CORS ---
     CORS_ORIGINS: list[str] = Field(default=["http://localhost:3000"])

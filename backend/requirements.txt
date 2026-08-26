@@ -2,6 +2,8 @@ fastapi
 uvicorn[standard]
 sqlalchemy[asyncio]
 asyncpg
+aiosqlite
+asyncmy
 alembic
 pydantic[email]
 pydantic-settings

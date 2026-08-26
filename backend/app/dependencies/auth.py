@@ -49,13 +49,13 @@ async def get_current_user(
         user_id_str: str | None = payload.get("sub")
         if user_id_str is None:
             raise UnauthorizedException(detail="Invalid token: missing subject")
-    except JWTError:
-        raise UnauthorizedException(detail="Invalid or expired token")
+    except JWTError as exc:
+        raise UnauthorizedException(detail="Invalid or expired token") from exc
 
     try:
         user_id = uuid.UUID(user_id_str)
-    except (ValueError, TypeError):
-        raise UnauthorizedException(detail="Invalid token: bad subject format")
+    except (ValueError, TypeError) as exc:
+        raise UnauthorizedException(detail="Invalid token: bad subject format") from exc
 
     repo = UserRepository(db)
     user = await repo.get_by_id(user_id)

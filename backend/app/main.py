@@ -5,8 +5,8 @@ Wires together all domain routers and configures middleware,
 CORS, lifespan events, and global exception handlers.
 """
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,15 +59,19 @@ def create_app() -> FastAPI:
 
     # Domain routers
     from app.domain.auth.router import router as auth_router
+    from app.domain.connections.router import router as connections_router
+    from app.domain.projects.router import router as projects_router
 
     app.include_router(auth_router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["auth"])
-    # from app.domain.projects.router import router as projects_router
-    # from app.domain.connections.router import router as connections_router
+    app.include_router(
+        projects_router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["projects"]
+    )
+    app.include_router(
+        connections_router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["connections"]
+    )
     # from app.domain.schema_introspection.router import router as schema_router
     # from app.domain.semantic_layer.router import router as semantic_router
     # from app.domain.chat.router import router as chat_router
-    # app.include_router(projects_router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["projects"])
-    # app.include_router(connections_router, prefix=f"{settings.API_V1_PREFIX}/connections", tags=["connections"])
     # app.include_router(schema_router, prefix=f"{settings.API_V1_PREFIX}/schema", tags=["schema"])
     # app.include_router(semantic_router, prefix=f"{settings.API_V1_PREFIX}/semantic", tags=["semantic"])
     # app.include_router(chat_router, prefix=f"{settings.API_V1_PREFIX}/chat", tags=["chat"])

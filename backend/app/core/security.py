@@ -10,15 +10,14 @@ Rules:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
 from cryptography.fernet import Fernet, InvalidToken
-from jose import JWTError, jwt
+from jose import jwt
 
 from app.core.config import settings
-
 
 # ── Fernet encryption (connection strings) ────────────────────────────────────
 
@@ -88,7 +87,7 @@ def create_access_token(
         Encoded JWT string.
     """
     to_encode = data.copy()
-    expire = datetime.now(tz=timezone.utc) + (
+    expire = datetime.now(tz=UTC) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     to_encode["exp"] = expire

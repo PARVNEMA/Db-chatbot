@@ -7,6 +7,7 @@ handlers for consistent error responses across all endpoints.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -176,11 +177,16 @@ def _build_error_body(
     }
 
 
-def _format_validation_errors(errors: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _format_validation_errors(errors: Sequence[Any]) -> list[dict[str, str]]:
     """Convert raw Pydantic/FastAPI validation errors into clean, concise dictionaries."""
     formatted: list[dict[str, str]] = []
     for err in errors:
-        loc_parts = [str(item) for item in err.get("loc", []) if item != "body"]
+        if isinstance(err, dict):
+            loc_parts = [str(item) for item in err.get("loc", []) if item != "body"]
+            msg = err.get("msg", "Invalid value")
+        else:
+            loc_parts = [str(item) for item in getattr(err, "loc", []) if item != "body"]
+            msg = getattr(err, "msg", "Invalid value")
         field_name = " -> ".join(loc_parts) if loc_parts else "body"
         msg = err.get("msg", "Invalid value")
         formatted.append({
