@@ -32,22 +32,22 @@
 - [x] Fernet encryption active and credentials never returned
 
 ## Phase 3: Schema Introspection & Caching (Phase 1)
-- [ ] **Task 5: Schema Introspection Engine & Schemas**
-  - [ ] Define `ColumnResponse`, `TableResponse`, `TableDetailResponse`, `SchemaOverviewResponse`, `IntrospectResponse` in `schema_introspection/schemas.py`
-  - [ ] Implement async reflection engine using `conn.run_sync(inspect)` in `connections/manager.py` / introspection service
-  - [ ] Test schema reflection extracting tables, column data types, nullability, PKs, and FKs
-- [ ] **Task 6: Schema Introspection Repository & Service**
-  - [ ] Implement `SchemaIntrospectionRepository` for `SchemaCache`, `SchemaTable`, `SchemaColumn` CRUD
-  - [ ] Implement `SchemaIntrospectionService` (fetch connection, introspect, atomically save normalized schema + JSON cache)
-  - [ ] Add cache refresh & table/column query methods
-  - [ ] Unit tests for introspection repository and service
-- [ ] **Task 7: Schema Introspection REST Router & Application Wiring**
-  - [ ] Implement `schema_introspection/router.py` (`POST /introspect`, `GET /`, `GET /tables`, `GET /tables/{table_name}`)
-  - [ ] Mount schema router in `main.py`
-  - [ ] End-to-end integration tests covering: Register User -> Create Project -> Add Connection -> Introspect Schema -> Query Tables & Columns
-  - [ ] Verify with `ruff check .`, `pyright`, and `pytest`
+- [x] **Task 5: Schema Introspection Engine & Schemas**
+  - [x] Define `ColumnResponse`, `TableResponse`, `TableDetailResponse`, `SchemaOverviewResponse`, `IntrospectResponse` in `schema_introspection/schemas.py`
+  - [x] Implement async reflection engine using `conn.run_sync(inspect)` in `connections/manager.py` / introspection service
+  - [x] Test schema reflection extracting tables, column data types, nullability, PKs, and FKs
+- [x] **Task 6: Schema Introspection Repository & Service**
+  - [x] Implement `SchemaIntrospectionRepository` for `SchemaCache`, `SchemaTable`, `SchemaColumn` CRUD
+  - [x] Implement `SchemaIntrospectionService` (fetch connection, introspect, atomically save normalized schema + JSON cache)
+  - [x] Add cache refresh & table/column query methods
+  - [x] Unit tests for introspection repository and service
+- [x] **Task 7: Schema Introspection REST Router & Application Wiring**
+  - [x] Implement `schema_introspection/router.py` (`POST /introspect`, `GET /`, `GET /tables`, `GET /tables/{table_name}`)
+  - [x] Mount schema router in `main.py`
+  - [x] End-to-end integration tests covering: Register User -> Create Project -> Add Connection -> Introspect Schema -> Query Tables & Columns
+  - [x] Verify with `ruff check .`, `pyright`, and `pytest`
 
 ## Checkpoint: Complete Verification
-- [ ] All unit and integration tests passing
-- [ ] Linter & type checks clean
-- [ ] Ready for user review / Phase 2 (Semantic Layer)
+- [x] All unit and integration tests passing
+- [x] Linter & type checks clean
+- [x] Ready for user review / Phase 2 (Semantic Layer)

@@ -10,6 +10,8 @@ Rules:
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -22,10 +24,22 @@ from app.core.config import settings
 # ── Fernet encryption (connection strings) ────────────────────────────────────
 
 
+def _derive_fernet_key(key_material: str) -> bytes:
+    """Derive a 32-byte URL-safe base64 Fernet key from any string or validate existing."""
+    try:
+        decoded = base64.urlsafe_b64decode(key_material.encode("utf-8"))
+        if len(decoded) == 32:
+            return key_material.encode("utf-8")
+    except Exception:
+        pass
+    digest = hashlib.sha256(key_material.encode("utf-8")).digest()
+    return base64.urlsafe_b64encode(digest)
+
+
 def _get_fernet() -> Fernet:
     if not settings.FERNET_KEY:
         raise RuntimeError("FERNET_KEY is not configured.")
-    return Fernet(settings.FERNET_KEY.encode())
+    return Fernet(_derive_fernet_key(settings.FERNET_KEY))
 
 
 def encrypt(plaintext: str) -> str:

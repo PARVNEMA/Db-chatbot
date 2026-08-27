@@ -6,21 +6,21 @@ against the platform (control-plane) metadata database.
 """
 
 import asyncio
+import os
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
-
-from app.core.config import settings
-from app.core.db import Base
 
 # Import all models so their metadata is registered for autogenerate
 import app.domain.auth.models  # noqa: F401
-import app.domain.projects.models  # noqa: F401
+import app.domain.chat.models  # noqa: F401
 import app.domain.connections.models  # noqa: F401
+import app.domain.projects.models  # noqa: F401
 import app.domain.schema_introspection.models  # noqa: F401
 import app.domain.semantic_layer.models  # noqa: F401
-import app.domain.chat.models  # noqa: F401
+from alembic import context
+from app.core.config import settings
+from app.core.db import Base
 
 config = context.config
 if config.config_file_name is not None:
@@ -28,8 +28,6 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
-
-import os
 
 def get_database_url() -> str:
     url = os.getenv("DATABASE_URL") or settings.DATABASE_URL

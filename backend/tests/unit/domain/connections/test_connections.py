@@ -329,6 +329,7 @@ def test_normalize_connection_url() -> None:
 
 def test_fernet_key_derivation() -> None:
     from cryptography.fernet import Fernet
+
     from app.core.security import _derive_fernet_key
 
     # Arbitrary strings (like placeholders in .env) should derive a valid Fernet key
