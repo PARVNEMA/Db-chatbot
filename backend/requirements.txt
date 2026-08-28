@@ -11,6 +11,10 @@ email-validator
 langgraph
 langchain
 langchain-anthropic
+langchain-huggingface
+huggingface-hub
+langchain-openai
+langchain-groq
 pgvector
 python-jose[cryptography]
 passlib[bcrypt]

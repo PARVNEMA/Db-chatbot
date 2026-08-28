@@ -1,4 +1,50 @@
+# Environment variables
 .env
+.env.*
+!.env.example
+
+# Python bytecode and cache
+*.py[cod]
+*$py.class
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python virtual environments & packages
+.venv/
+venv/
+ENV/
+env/
+build/
+dist/
+*.egg-info/
+
+# Testing & Linting caches
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+
+# Frontend (Node / Next.js)
 node_modules/
-*pyc
-/__pycache__
+frontend/node_modules/
+.next/
+frontend/.next/
+out/
+frontend/out/
+.vercel/
+
+# Logs & Databases
+*.log
+*.sqlite
+*.sqlite3
+pgdata/
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
