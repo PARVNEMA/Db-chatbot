@@ -171,21 +171,21 @@ class SchemaIntrospectionService:
         )
 
         # 4. Generate initial vector embeddings for the introspected schema
-        try:
-            from app.domain.embeddings.services import EmbeddingService
+        # try:
+        #     from app.domain.embeddings.services import EmbeddingService
 
-            embedding_service = EmbeddingService(
-                db=self._db, connection_service=self._connection_service
-            )
-            await embedding_service.generate_and_store_for_connection(
-                project_id=project_id, connection_id=connection.id
-            )
-        except Exception as emb_exc:
-            logger.warning(
-                "Initial embedding generation skipped/failed for connection %s: %s",
-                connection.id,
-                emb_exc,
-            )
+        #     embedding_service = EmbeddingService(
+        #         db=self._db, connection_service=self._connection_service
+        #     )
+        #     await embedding_service.generate_and_store_for_connection(
+        #         project_id=project_id, connection_id=connection.id
+        #     )
+        # except Exception as emb_exc:
+        #     logger.warning(
+        #         "Initial embedding generation skipped/failed for connection %s: %s",
+        #         connection.id,
+        #         emb_exc,
+        #     )
 
         # 5. Construct IntrospectResponse
         total_cols = sum(len(t.columns) for t in saved_cache.tables)

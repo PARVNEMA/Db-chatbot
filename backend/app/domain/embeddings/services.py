@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
 from typing import Annotated, Any
 
 from fastapi import Depends
@@ -114,6 +114,34 @@ def _build_schema_prompt_text(tables: Sequence[SchemaTable]) -> str:
     return "\n\n".join(schema_summary)
 
 
+def _prepare_columns_to_embed(
+    tables: Sequence[SchemaTable],
+    annotations: Sequence[SchemaAnnotation],
+) -> list[tuple[SchemaColumn, SchemaTable, str]]:
+    """Build composite embed text for each column, linking parent table and annotations."""
+    table_annot_map: dict[uuid.UUID, list[SchemaAnnotation]] = {}
+    col_annot_map: dict[uuid.UUID, list[SchemaAnnotation]] = {}
+    for a in annotations:
+        if a.schema_table_id:
+            table_annot_map.setdefault(a.schema_table_id, []).append(a)
+        if a.schema_column_id:
+            col_annot_map.setdefault(a.schema_column_id, []).append(a)
+
+    columns_to_embed: list[tuple[SchemaColumn, SchemaTable, str]] = []
+    for table in tables:
+        t_annots = table_annot_map.get(table.id, [])
+        for col in table.columns:
+            c_annots = col_annot_map.get(col.id, [])
+            embed_text = build_composite_embed_text(
+                column=col,
+                table=table,
+                table_annotations=t_annots,
+                column_annotations=c_annots,
+            )
+            columns_to_embed.append((col, table, embed_text))
+    return columns_to_embed
+
+
 class EmbeddingService:
     """Domain service managing embedding generation, synchronization, and schema search."""
 
@@ -156,7 +184,6 @@ class EmbeddingService:
         """Fetch all introspected schema tables/columns and annotations, generate embeddings, and persist."""
         settings = get_settings()
 
-        # 1. Fetch tables with columns
         tables = await self._schema_repo.get_tables(
             project_id=project_id, connection_id=connection_id
         )
@@ -164,51 +191,25 @@ class EmbeddingService:
             logger.info("No tables found for connection %s to embed", connection_id)
             return 0
 
-        # 2. Fetch all annotations for connection
         annotations = await self._semantic_repo.get_annotations_for_connection(
             project_id=project_id, connection_id=connection_id
         )
-        table_annot_map: dict[uuid.UUID, list[SchemaAnnotation]] = {}
-        col_annot_map: dict[uuid.UUID, list[SchemaAnnotation]] = {}
-
-        for a in annotations:
-            if a.schema_table_id:
-                table_annot_map.setdefault(a.schema_table_id, []).append(a)
-            if a.schema_column_id:
-                col_annot_map.setdefault(a.schema_column_id, []).append(a)
-
-        # 3. Build composite texts for every column
-        columns_to_embed: list[tuple[SchemaColumn, str]] = []
-        for table in tables:
-            t_annots = table_annot_map.get(table.id, [])
-            for col in table.columns:
-                c_annots = col_annot_map.get(col.id, [])
-                embed_text = build_composite_embed_text(
-                    column=col,
-                    table=table,
-                    table_annotations=t_annots,
-                    column_annotations=c_annots,
-                )
-                columns_to_embed.append((col, embed_text))
-
+        columns_to_embed = _prepare_columns_to_embed(tables=tables, annotations=annotations)
         if not columns_to_embed:
             return 0
 
-        # 4. Generate embeddings
-        texts = [item[1] for item in columns_to_embed]
+        texts = [item[2] for item in columns_to_embed]
         vectors = await self.generate_embeddings_batch(texts)
 
-        # 5. Persist
-        records: list[dict[str, Any]] = []
-        for (col, text), vec in zip(columns_to_embed, vectors, strict=True):
-            records.append(
-                {
-                    "column_id": col.id,
-                    "embed_text": text,
-                    "embedding": vec,
-                    "model": settings.EMBEDDING_MODEL,
-                }
-            )
+        records: list[dict[str, Any]] = [
+            {
+                "column_id": col.id,
+                "embed_text": text,
+                "embedding": vec,
+                "model": settings.EMBEDDING_MODEL,
+            }
+            for (col, _tbl, text), vec in zip(columns_to_embed, vectors, strict=True)
+        ]
 
         saved_count = await self._repo.bulk_save_embeddings(
             project_id=project_id,
@@ -221,6 +222,88 @@ class EmbeddingService:
             connection_id,
         )
         return saved_count
+
+    async def generate_and_store_for_connection_stream(
+        self,
+        project_id: uuid.UUID,
+        connection_id: uuid.UUID,
+        chunk_size: int = 5,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """Stream real-time SSE progress while generating and saving schema embeddings."""
+        settings = get_settings()
+
+        tables = await self._schema_repo.get_tables(
+            project_id=project_id, connection_id=connection_id
+        )
+        if not tables:
+            yield {"event": "start", "total": 0, "tables_count": 0, "message": "No tables found to embed"}
+            yield {"event": "complete", "total": 0, "model": settings.EMBEDDING_MODEL, "dimensions": settings.EMBEDDING_DIMENSIONS}
+            return
+
+        annotations = await self._semantic_repo.get_annotations_for_connection(
+            project_id=project_id, connection_id=connection_id
+        )
+        columns_to_embed = _prepare_columns_to_embed(tables=tables, annotations=annotations)
+        total_cols = len(columns_to_embed)
+
+        yield {
+            "event": "start",
+            "total": total_cols,
+            "tables_count": len(tables),
+            "model": settings.EMBEDDING_MODEL,
+            "dimensions": settings.EMBEDDING_DIMENSIONS,
+            "message": f"Starting embedding generation for {total_cols} columns",
+        }
+
+        if total_cols == 0:
+            yield {"event": "complete", "total": 0, "model": settings.EMBEDDING_MODEL, "dimensions": settings.EMBEDDING_DIMENSIONS}
+            return
+
+        completed_count = 0
+        embeddings_client = get_embeddings_client()
+
+        for i in range(0, total_cols, chunk_size):
+            chunk = columns_to_embed[i : i + chunk_size]
+            chunk_texts = [item[2] for item in chunk]
+
+            try:
+                vectors = embeddings_client.embed_documents(chunk_texts)
+            except Exception as exc:
+                logger.exception("Embedding generation failed during streaming: %s", exc)
+                yield {"event": "error", "message": f"Failed to generate embeddings: {exc}"}
+                return
+
+            for (col, _tbl, text), vec in zip(chunk, vectors, strict=True):
+                await self._repo.upsert_embedding(
+                    project_id=project_id,
+                    connection_id=connection_id,
+                    column_id=col.id,
+                    embed_text=text,
+                    embedding=vec,
+                    model=settings.EMBEDDING_MODEL,
+                )
+
+            completed_count += len(chunk)
+            last_col, last_tbl, _ = chunk[-1]
+            percentage = round((completed_count / total_cols) * 100, 1)
+
+            yield {
+                "event": "progress",
+                "completed": completed_count,
+                "total": total_cols,
+                "current_table": last_tbl.table_name,
+                "current_column": last_col.column_name,
+                "percentage": percentage,
+                "message": f"Processed {completed_count}/{total_cols} columns ({percentage}%)",
+            }
+
+        yield {
+            "event": "complete",
+            "total": total_cols,
+            "model": settings.EMBEDDING_MODEL,
+            "dimensions": settings.EMBEDDING_DIMENSIONS,
+            "message": f"Successfully generated and stored {total_cols} embeddings",
+        }
 
     async def regenerate_for_column(
         self,

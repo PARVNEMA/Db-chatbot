@@ -271,3 +271,31 @@ async def test_auto_suggest_endpoint(
         assert body["success"] is True
         assert body["data"]["suggested_tables_count"] == 1
         assert body["data"]["suggested_columns_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_embeddings_streaming_endpoint(
+    client: AsyncClient, db_session: AsyncSession
+) -> None:
+    """Test POST /{project_id}/schema/embeddings/generate?stream=true."""
+    _, headers, project, _, _, _ = await setup_embeddings_test_context(
+        db_session, "sse_test@test.com"
+    )
+
+    mock_embeddings_client = MagicMock()
+    mock_embeddings_client.embed_documents.return_value = [
+        [0.1] * 384,
+        [0.2] * 384,
+    ]
+
+    with patch("app.domain.embeddings.services.get_embeddings_client", return_value=mock_embeddings_client):
+        response = await client.post(
+            f"/api/v1/projects/{project.id}/schema/embeddings/generate?stream=true",
+            headers=headers,
+        )
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers.get("content-type", "")
+        content = response.text
+        assert "event: start" in content
+        assert "event: progress" in content
+        assert "event: complete" in content

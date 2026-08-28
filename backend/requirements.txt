@@ -5,6 +5,7 @@ asyncpg
 aiosqlite
 asyncmy
 alembic
+numpy
 pydantic[email]
 pydantic-settings
 email-validator

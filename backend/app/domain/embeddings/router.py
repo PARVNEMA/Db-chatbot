@@ -7,10 +7,13 @@ Mounted under `/api/v1/projects` in `app/main.py`.
 
 from __future__ import annotations
 
+import json
 import uuid
-from typing import Annotated
+from collections.abc import AsyncGenerator
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import StreamingResponse
 
 from app.core.config import get_settings
 from app.core.responses import ApiResponse, success_response
@@ -29,6 +32,20 @@ from app.domain.embeddings.services import (
 )
 
 router = APIRouter()
+
+
+async def _sse_stream_generator(
+    service: EmbeddingService,
+    project_id: uuid.UUID,
+    connection_id: uuid.UUID,
+) -> AsyncGenerator[str, None]:
+    """Format dictionary events as standard SSE data frames."""
+    async for event in service.generate_and_store_for_connection_stream(
+        project_id=project_id, connection_id=connection_id
+    ):
+        event_name = event.get("event", "message")
+        payload = json.dumps(event)
+        yield f"event: {event_name}\ndata: {payload}\n\n"
 
 
 @router.post(
@@ -59,20 +76,36 @@ async def search_schema(
 
 @router.post(
     "/{project_id}/schema/embeddings/generate",
-    response_model=ApiResponse[EmbeddingGenerateResponse],
     status_code=status.HTTP_200_OK,
-    summary="Generate vector embeddings for introspected schema",
-    description="Construct composite embed_text for all tables/columns in the project and store their vectors in pgvector.",
+    summary="Generate vector embeddings for introspected schema (supports SSE streaming)",
+    description="Construct composite embed_text for all tables/columns in the project and store their vectors in pgvector. Pass `stream=true` to receive real-time Server-Sent Events.",
 )
 async def generate_embeddings(
     project_id: uuid.UUID,
     service: Annotated[EmbeddingService, Depends(get_embedding_service)],
     conn_service: Annotated[ConnectionService, Depends(get_connection_service)],
     current_user: Annotated[User, Depends(get_current_active_user)],
-) -> ApiResponse[EmbeddingGenerateResponse]:
+    stream: Annotated[bool, Query(description="Stream progress updates as Server-Sent Events")] = False,
+) -> Any:
     """Generate vector embeddings for all columns in the connection schema."""
     settings = get_settings()
     connection = await conn_service.get_connection(project_id=project_id, user_id=current_user.id)
+
+    if stream:
+        return StreamingResponse(
+            _sse_stream_generator(
+                service=service,
+                project_id=project_id,
+                connection_id=connection.id,
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
     count = await service.generate_and_store_for_connection(
         project_id=project_id, connection_id=connection.id
     )
@@ -86,6 +119,35 @@ async def generate_embeddings(
     return success_response(
         data=response_data,
         message=f"Successfully generated embeddings for {count} columns",
+    )
+
+
+@router.get(
+    "/{project_id}/schema/embeddings/generate/events",
+    status_code=status.HTTP_200_OK,
+    summary="Stream embedding generation via SSE (GET endpoint for EventSource)",
+    description="Trigger embedding generation and stream real-time Server-Sent Events progress.",
+)
+async def stream_generate_embeddings_events(
+    project_id: uuid.UUID,
+    service: Annotated[EmbeddingService, Depends(get_embedding_service)],
+    conn_service: Annotated[ConnectionService, Depends(get_connection_service)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> StreamingResponse:
+    """Stream embedding generation progress over SSE."""
+    connection = await conn_service.get_connection(project_id=project_id, user_id=current_user.id)
+    return StreamingResponse(
+        _sse_stream_generator(
+            service=service,
+            project_id=project_id,
+            connection_id=connection.id,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
