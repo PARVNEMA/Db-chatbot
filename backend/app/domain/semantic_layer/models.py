@@ -1,4 +1,4 @@
-﻿"""
+"""
 SemanticLayer domain — SQLAlchemy ORM model.
 
 `SchemaAnnotation` stores user-added notes/annotations for tables and columns
@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, ForeignKey, String, Text
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +58,9 @@ class SchemaAnnotation(TimestampMixin, Base):
         String(10), nullable=False
     )  # "table" | "column"
     note: Mapped[str] = mapped_column(Text, nullable=False)
+    is_auto_generated: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
 
     table: Mapped[SchemaTable | None] = relationship(
         "SchemaTable",
