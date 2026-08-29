@@ -58,6 +58,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     from app.domain.auth.router import router as auth_router
+    from app.domain.chat.router import router as chat_router
     from app.domain.connections.router import router as connections_router
     from app.domain.embeddings.router import router as embeddings_router
     from app.domain.projects.router import router as projects_router
@@ -80,8 +81,9 @@ def create_app() -> FastAPI:
     app.include_router(
         embeddings_router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["embeddings"]
     )
-    # from app.domain.chat.router import router as chat_router
-    # app.include_router(chat_router, prefix=f"{settings.API_V1_PREFIX}/chat", tags=["chat"])
+    app.include_router(
+        chat_router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["chat"]
+    )
 
     @app.get(
         "/health",

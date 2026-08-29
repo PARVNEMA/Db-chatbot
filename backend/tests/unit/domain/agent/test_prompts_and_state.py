@@ -7,6 +7,7 @@ import uuid
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.domain.agent.prompts import (
+    GENERAL_CONVERSATION_PROMPT,
     INTENT_CLASSIFICATION_PROMPT,
     RESULT_SUMMARY_PROMPT,
     SQL_CORRECTION_PROMPT,
@@ -130,3 +131,11 @@ def test_prompt_templates_formatting() -> None:
     )
     assert len(summary_messages) == 2
     assert "{'count': 15}" in str(summary_messages[1].content)
+
+    # 5. General Conversation prompt
+    general_messages = GENERAL_CONVERSATION_PROMPT.format_messages(
+        user_query="Hello! How are you?",
+        messages=[],
+    )
+    assert len(general_messages) >= 2
+    assert "Hello! How are you?" in str(general_messages[-1].content)

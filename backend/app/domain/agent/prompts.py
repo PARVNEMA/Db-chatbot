@@ -211,6 +211,27 @@ RESULT_SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
 )
 
 
+# ==============================================================================
+# 5. General Conversation Prompt
+# ==============================================================================
+
+GENERAL_CONVERSATION_SYSTEM_PROMPT = """You are a helpful AI assistant for natural language database querying and analytics.
+You assist users with querying, exploring, and analyzing their database in natural language.
+For general greetings, questions about your capabilities, or conversational questions, respond politely, concisely, and helpfully.
+Encourage the user to ask questions about their database tables, schema, or analytics metrics.
+"""
+
+GENERAL_CONVERSATION_HUMAN_PROMPT = """{user_query}"""
+
+GENERAL_CONVERSATION_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        SystemMessagePromptTemplate.from_template(GENERAL_CONVERSATION_SYSTEM_PROMPT),
+        MessagesPlaceholder(variable_name="messages", optional=True),
+        HumanMessagePromptTemplate.from_template(GENERAL_CONVERSATION_HUMAN_PROMPT),
+    ]
+)
+
+
 def extract_clean_sql(raw_response: str) -> str:
     """Extract clean SQL string from LLM response, stripping markdown fences or prefixes."""
     cleaned = raw_response.strip()
