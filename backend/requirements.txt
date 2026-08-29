@@ -25,3 +25,4 @@ langsmith
 structlog==24.4.0
 # --- Configuration ---
 python-dotenv==1.0.1
+sqlglot>=25.0.0

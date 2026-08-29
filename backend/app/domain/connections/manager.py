@@ -17,6 +17,9 @@ import asyncio
 import re
 import time
 import uuid
+from datetime import date, datetime
+from datetime import time as time_type
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import text
@@ -67,6 +70,19 @@ def normalize_connection_url(conn_str: str) -> str:
     if trimmed.startswith("mariadb://") and not trimmed.startswith("mariadb+"):
         return "mariadb+asyncmy://" + trimmed[len("mariadb://") :]
     return trimmed
+
+
+def serialize_row_value(val: Any) -> Any:
+    """Convert database column values to JSON-serializable primitives."""
+    if val is None:
+        return None
+    if isinstance(val, (datetime, date, time_type)):
+        return val.isoformat()
+    if isinstance(val, (Decimal, uuid.UUID)):
+        return str(val)
+    if isinstance(val, (bytes, bytearray, memoryview)):
+        return bytes(val).hex()
+    return val
 
 
 class ConnectionManager:
@@ -161,35 +177,54 @@ class ConnectionManager:
 
     @staticmethod
     def _validate_query(sql: str) -> None:
-        """Reject any statement containing DDL/DML keywords.
+        """Reject any statement containing DDL/DML keywords or non-SELECT AST.
 
         Raises:
-            ValueError: if a blocked keyword is found.
+            ValueError: if a blocked keyword or invalid AST is found.
         """
+        from app.domain.agent.sql_validator import validate_read_only
+
+        # Fast keyword check
         lowered = sql.lower()
         for kw in _BLOCKED_KEYWORDS:
-            if kw in lowered:
+            if re.search(rf"\b{kw}\b", lowered):
                 raise ValueError(
                     f"Blocked keyword '{kw}' detected. Only SELECT statements are permitted."
                 )
 
+        # Full AST-level validation
+        validate_read_only(sql)
+
     async def execute_safe(
-        self, session: AsyncSession, sql: str, params: dict[str, Any] | None = None
+        self,
+        session: AsyncSession,
+        sql: str,
+        params: dict[str, Any] | None = None,
+        timeout_seconds: float = QUERY_TIMEOUT_SECONDS,
     ) -> list[dict[str, Any]]:
-        """Execute a SQL string with read-only guardrails.
+        """Execute a SQL string with read-only guardrails, timeout, and row limits.
 
         Applies:
-        - Keyword block-list (no DDL/DML).
+        - Keyword block-list and AST validation (no DDL/DML).
+        - Execution timeout via asyncio.wait_for.
         - Row limit cap (QUERY_ROW_LIMIT).
+        - Type serialization for JSON-compatible response shapes.
 
         Returns:
             A list of row dicts (column_name -> value), capped at QUERY_ROW_LIMIT.
         """
         self._validate_query(sql)
         stmt = text(sql)
-        result = await session.execute(stmt, params or {})
-        rows = result.mappings().fetchmany(QUERY_ROW_LIMIT)
-        return [dict(row) for row in rows]
+
+        async def _run_query() -> list[dict[str, Any]]:
+            result = await session.execute(stmt, params or {})
+            raw_rows = result.mappings().fetchmany(QUERY_ROW_LIMIT)
+            return [
+                {k: serialize_row_value(v) for k, v in row.items()}
+                for row in raw_rows
+            ]
+
+        return await asyncio.wait_for(_run_query(), timeout=timeout_seconds)
 
     async def dispose(self, project_id: uuid.UUID, connection_id: uuid.UUID) -> None:
         """Dispose and remove a pooled engine (e.g. on connection delete)."""
