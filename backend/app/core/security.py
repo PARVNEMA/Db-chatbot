@@ -19,9 +19,25 @@ import bcrypt
 from cryptography.fernet import Fernet, InvalidToken
 from jose import jwt
 
-from app.core.config import settings
+from app.core.config import get_settings, settings
 
 # ── Fernet encryption (connection strings) ────────────────────────────────────
+
+_PLAIN_URI_PREFIXES: tuple[str, ...] = (
+    "postgresql://",
+    "postgresql+asyncpg://",
+    "postgresql+psycopg2://",
+    "postgresql+psycopg://",
+    "sqlite://",
+    "sqlite+aiosqlite://",
+    "mysql://",
+    "mysql+asyncmy://",
+    "mysql+pymysql://",
+    "mssql://",
+    "oracle://",
+    "cockroachdb://",
+    "snowflake://",
+)
 
 
 def _derive_fernet_key(key_material: str) -> bytes:
@@ -37,9 +53,10 @@ def _derive_fernet_key(key_material: str) -> bytes:
 
 
 def _get_fernet() -> Fernet:
-    if not settings.FERNET_KEY:
+    current_settings = get_settings()
+    if not current_settings.FERNET_KEY:
         raise RuntimeError("FERNET_KEY is not configured.")
-    return Fernet(_derive_fernet_key(settings.FERNET_KEY))
+    return Fernet(_derive_fernet_key(current_settings.FERNET_KEY))
 
 
 def encrypt(plaintext: str) -> str:
@@ -50,13 +67,28 @@ def encrypt(plaintext: str) -> str:
 def decrypt(token: str) -> str:
     """Decrypt a Fernet token back to a plaintext connection string.
 
+    If the string is already a plaintext database URI (e.g. from local testing or dev seeds),
+    it is returned directly.
+
     Raises:
         ValueError: if the token is malformed or the key is wrong.
     """
+    if not token:
+        raise ValueError("Connection string token is empty.")
+
+    # Check if already a plaintext database connection URI
+    lowered = token.lower().strip()
+    if any(lowered.startswith(prefix) for prefix in _PLAIN_URI_PREFIXES):
+        return token.strip()
+
     try:
         return _get_fernet().decrypt(token.encode()).decode()
     except InvalidToken as exc:
-        raise ValueError("Failed to decrypt connection string — invalid token or key.") from exc
+        raise ValueError(
+            "Failed to decrypt connection string. This occurs if the FERNET_KEY was changed "
+            "after saving the connection, or if the stored credentials are invalid. "
+            "Please update/re-save the database connection under project settings."
+        ) from exc
 
 
 # Aliases adhering to AGENTS.md naming conventions
