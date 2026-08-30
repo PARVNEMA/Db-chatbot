@@ -7,11 +7,8 @@ import {
   Square,
   Sparkles,
   Search,
-  Database,
   Terminal,
-  CheckCircle2,
   AlertCircle,
-  Clock,
   Layers,
   ArrowLeft,
   Key,
@@ -24,7 +21,7 @@ interface SSEEvent {
   id: string;
   time: string;
   type: "start" | "progress" | "complete" | "error" | "info";
-  data: any;
+  data: unknown;
 }
 
 interface SearchResult {
@@ -70,7 +67,7 @@ export default function EmbeddingsDemoPage() {
     logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [events]);
 
-  const addEventLog = (type: SSEEvent["type"], data: any) => {
+  const addEventLog = (type: SSEEvent["type"], data: unknown) => {
     setEvents((prev) => [
       ...prev,
       {
@@ -158,40 +155,57 @@ export default function EmbeddingsDemoPage() {
       }
 
       setStatusMessage("Stream completed successfully");
-    } catch (err: any) {
-      if (err.name === "AbortError") {
+    } catch (err: unknown) {
+      const errorObj = err as { name?: string; message?: string };
+      if (errorObj?.name === "AbortError") {
         setStatusMessage("Stream stopped by user");
         addEventLog("info", { message: "Stream manually aborted" });
       } else {
-        setStatusMessage(`Error: ${err.message}`);
-        addEventLog("error", { error: err.message });
+        const msg = errorObj?.message || String(err);
+        setStatusMessage(`Error: ${msg}`);
+        addEventLog("error", { error: msg });
       }
     } finally {
       setIsStreaming(false);
     }
   };
 
-  const handleSSEMessage = (eventType: string, data: any) => {
-    if (eventType === "start" || data.event === "start") {
-      setTotalColumns(data.total || 0);
-      setActiveModel(data.model || null);
-      setStatusMessage(data.message || "Embedding generation started");
+  const handleSSEMessage = (
+    eventType: string,
+    data: Record<string, unknown>
+  ) => {
+    const eventName = (data.event as string) || eventType;
+    const total = (data.total as number) || 0;
+    const completed = (data.completed as number) || 0;
+    const message = (data.message as string) || "";
+    const model = (data.model as string) || null;
+    const currentTab = (data.current_table as string) || null;
+    const currentCol = (data.current_column as string) || null;
+    const percentage = (data.percentage as number) || 0;
+
+    if (eventName === "start") {
+      setTotalColumns(total);
+      setActiveModel(model);
+      setStatusMessage(message || "Embedding generation started");
       addEventLog("start", data);
-    } else if (eventType === "progress" || data.event === "progress") {
-      setCompletedColumns(data.completed || 0);
-      setTotalColumns(data.total || totalColumns);
-      setCurrentTable(data.current_table || null);
-      setCurrentColumn(data.current_column || null);
-      setProgress(data.percentage || Math.round(((data.completed || 0) / (data.total || 1)) * 100));
-      setStatusMessage(data.message || `Processing ${data.completed}/${data.total}`);
+    } else if (eventName === "progress") {
+      setCompletedColumns(completed);
+      setTotalColumns(total || totalColumns);
+      setCurrentTable(currentTab);
+      setCurrentColumn(currentCol);
+      setProgress(
+        percentage ||
+          Math.round((completed / (total || 1)) * 100)
+      );
+      setStatusMessage(message || `Processing ${completed}/${total}`);
       addEventLog("progress", data);
-    } else if (eventType === "complete" || data.event === "complete") {
+    } else if (eventName === "complete") {
       setProgress(100);
-      setCompletedColumns(data.total || completedColumns);
-      setStatusMessage(data.message || "Embedding generation complete!");
+      setCompletedColumns(total || completedColumns);
+      setStatusMessage(message || "Embedding generation complete!");
       addEventLog("complete", data);
-    } else if (eventType === "error" || data.event === "error") {
-      setStatusMessage(`Error: ${data.message}`);
+    } else if (eventName === "error") {
+      setStatusMessage(`Error: ${message}`);
       addEventLog("error", data);
     } else {
       addEventLog("info", data);
@@ -235,8 +249,9 @@ export default function EmbeddingsDemoPage() {
       }
 
       setSearchResults(json.data || []);
-    } catch (err: any) {
-      setSearchError(err.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSearchError(msg);
     } finally {
       setIsSearching(false);
     }
@@ -431,7 +446,7 @@ export default function EmbeddingsDemoPage() {
           <div className="p-4 bg-black/50 font-mono text-xs max-h-72 overflow-y-auto space-y-2">
             {events.length === 0 ? (
               <div className="text-zinc-600 py-8 text-center">
-                No events streamed yet. Click "Start SSE Stream" to begin receiving live progress updates.
+                No events streamed yet. Click &quot;Start SSE Stream&quot; to begin receiving live progress updates.
               </div>
             ) : (
               events.map((evt) => (

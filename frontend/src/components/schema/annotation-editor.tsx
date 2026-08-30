@@ -1,0 +1,196 @@
+"use client";
+
+import React, { useState } from "react";
+import { Edit2, Check, X, Trash2, Sparkles, Loader2, Plus } from "lucide-react";
+import { annotationsApi } from "@/lib/api/annotations";
+import type { Annotation } from "@/types/annotation";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+
+interface AnnotationEditorProps {
+  projectId: string;
+  targetType: "table" | "column";
+  schemaTableId?: string | null;
+  schemaColumnId?: string | null;
+  initialAnnotation?: Annotation | null;
+  onSaved?: () => void;
+}
+
+export function AnnotationEditor({
+  projectId,
+  targetType,
+  schemaTableId,
+  schemaColumnId,
+  initialAnnotation,
+  onSaved,
+}: AnnotationEditorProps): React.JSX.Element {
+  const [annotation, setAnnotation] = useState<Annotation | null>(
+    initialAnnotation || null
+  );
+  const [isEditing, setIsEditing] = useState(false);
+  const [noteText, setNoteText] = useState(initialAnnotation?.note || "");
+  const [loading, setLoading] = useState(false);
+
+  const handleSave = async () => {
+    if (!noteText.trim()) {
+      toast.error("Note cannot be empty");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (annotation) {
+        // Update existing note
+        const res = await annotationsApi.update(projectId, annotation.id, {
+          note: noteText.trim(),
+        });
+        if (res.success && res.data) {
+          setAnnotation(res.data);
+          toast.success("Description updated & embeddings resynced");
+        }
+      } else {
+        // Create new annotation
+        const res = await annotationsApi.create(projectId, {
+          target_type: targetType,
+          schema_table_id: targetType === "table" ? schemaTableId : null,
+          schema_column_id: targetType === "column" ? schemaColumnId : null,
+          note: noteText.trim(),
+        });
+        if (res.success && res.data) {
+          setAnnotation(res.data);
+          toast.success("Description saved & vector embedding generated");
+        }
+      }
+      setIsEditing(false);
+      onSaved?.();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to save annotation";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!annotation) return;
+    setLoading(true);
+    try {
+      const res = await annotationsApi.delete(projectId, annotation.id);
+      if (res.success) {
+        setAnnotation(null);
+        setNoteText("");
+        setIsEditing(false);
+        toast.success("Description removed");
+        onSaved?.();
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to delete annotation";
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center gap-2 max-w-lg">
+        <Input
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          placeholder="Add business context, meaning, or join hint..."
+          className="h-8 text-xs bg-zinc-900 border-zinc-700"
+          autoFocus
+          disabled={loading}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              void handleSave();
+            } else if (e.key === "Escape") {
+              setIsEditing(false);
+            }
+          }}
+        />
+        <Button
+          size="icon-xs"
+          onClick={() => void handleSave()}
+          disabled={loading}
+          className="bg-emerald-600 hover:bg-emerald-500 text-white shrink-0"
+          title="Save Description"
+        >
+          {loading ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Check className="h-3 w-3" />
+          )}
+        </Button>
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          onClick={() => setIsEditing(false)}
+          disabled={loading}
+          className="text-zinc-400 hover:text-white shrink-0"
+          title="Cancel"
+        >
+          <X className="h-3 w-3" />
+        </Button>
+        {annotation && (
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            onClick={() => void handleDelete()}
+            disabled={loading}
+            className="text-zinc-500 hover:text-red-400 shrink-0"
+            title="Delete Description"
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  if (annotation) {
+    return (
+      <div className="group/note flex items-center gap-2 max-w-xl">
+        <span className="text-xs text-zinc-300 font-sans line-clamp-1">
+          {annotation.note}
+        </span>
+        {annotation.is_auto_generated && (
+          <Badge
+            variant="accent"
+            className="text-[9px] py-0 px-1 shrink-0 gap-1"
+            title="Auto-generated by LLM from schema"
+          >
+            <Sparkles className="h-2.5 w-2.5" />
+            AI Draft
+          </Badge>
+        )}
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          onClick={() => {
+            setNoteText(annotation.note);
+            setIsEditing(true);
+          }}
+          className="opacity-0 group-hover/note:opacity-100 transition-opacity text-zinc-500 hover:text-zinc-200 h-5 w-5 shrink-0"
+          title="Edit Description"
+        >
+          <Edit2 className="h-2.5 w-2.5" />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setIsEditing(true)}
+      className="inline-flex items-center gap-1 text-[11px] text-zinc-500 hover:text-blue-400 transition-colors"
+    >
+      <Plus className="h-3 w-3" />
+      <span>Add description</span>
+    </button>
+  );
+}
