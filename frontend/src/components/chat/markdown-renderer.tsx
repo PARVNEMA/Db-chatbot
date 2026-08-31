@@ -61,16 +61,49 @@ export function MarkdownRenderer({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          h1: ({ children, ...props }) => (
+            <h1 className="mt-4 mb-2 text-lg font-bold tracking-tight text-zinc-100 first:mt-0" {...props}>
+              {children}
+            </h1>
+          ),
+          h2: ({ children, ...props }) => (
+            <h2 className="mt-3.5 mb-2 text-base font-semibold tracking-tight text-zinc-100 first:mt-0" {...props}>
+              {children}
+            </h2>
+          ),
+          h3: ({ children, ...props }) => (
+            <h3 className="mt-3 mb-1.5 text-sm font-semibold text-zinc-200 first:mt-0" {...props}>
+              {children}
+            </h3>
+          ),
+          h4: ({ children, ...props }) => (
+            <h4 className="mt-2 mb-1 text-xs font-semibold uppercase tracking-wider text-zinc-300 first:mt-0" {...props}>
+              {children}
+            </h4>
+          ),
+          hr: ({ ...props }) => (
+            <hr className="my-4 border-zinc-800" {...props} />
+          ),
+          em: ({ children, ...props }) => (
+            <em className="italic text-zinc-300" {...props}>
+              {children}
+            </em>
+          ),
+          del: ({ children, ...props }) => (
+            <del className="line-through text-zinc-500" {...props}>
+              {children}
+            </del>
+          ),
           table: ({ children, ...props }) => (
-            <div className="my-3 overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-950/80 shadow-md">
-              <table className="w-full border-collapse text-left text-xs font-mono" {...props}>
+            <div className="my-3 max-w-full overflow-x-auto rounded-xl border border-zinc-800 bg-zinc-950/90 shadow-md">
+              <table className="w-full border-collapse text-left text-xs font-sans" {...props}>
                 {children}
               </table>
             </div>
           ),
           thead: ({ children, ...props }) => (
             <thead
-              className="border-b border-zinc-800 bg-zinc-900/90 text-zinc-300 font-semibold"
+              className="border-b border-zinc-800 bg-zinc-900/90 text-zinc-200 font-semibold"
               {...props}
             >
               {children}
@@ -82,7 +115,7 @@ export function MarkdownRenderer({
             </tbody>
           ),
           tr: ({ children, ...props }) => (
-            <tr className="hover:bg-zinc-900/40 transition-colors" {...props}>
+            <tr className="hover:bg-zinc-900/40 transition-colors even:bg-zinc-900/20" {...props}>
               {children}
             </tr>
           ),

@@ -8,6 +8,7 @@ import { MessageBubble } from "./message-bubble";
 import { SSEStatusIndicator } from "./sse-status-indicator";
 import { SqlViewer } from "./sql-viewer";
 import { QueryResultTable } from "./query-result-table";
+import { MarkdownRenderer } from "./markdown-renderer";
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -78,8 +79,8 @@ export function MessageList({
 
             {/* In-Flight Natural Language Summary */}
             {streamState.nlSummary && (
-              <div className="p-4 rounded-2xl rounded-tl-none bg-zinc-900/90 border border-zinc-800 text-zinc-200 text-sm shadow-md leading-relaxed font-sans">
-                {streamState.nlSummary}
+              <div className="p-4 rounded-2xl rounded-tl-none bg-zinc-900/90 border border-zinc-800 text-zinc-200 text-sm shadow-md leading-relaxed font-sans overflow-hidden">
+                <MarkdownRenderer content={streamState.nlSummary} />
               </div>
             )}
           </div>

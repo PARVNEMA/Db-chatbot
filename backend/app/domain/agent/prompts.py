@@ -189,9 +189,12 @@ Your task is to review the results of a SQL query and formulate a clear, concise
 Guidelines:
 - Deliver a direct, conversational answer in plain English.
 - Highlight key findings, totals, averages, or standout figures clearly.
+- If presenting tabular data, format it as a standard GitHub Flavored Markdown table with each row on its own separate line and matching column delimiters (e.g. | Col1 | Col2 |\\n|---|---|\\n| Val1 | Val2 |).
 - If the result set is empty (0 rows), clearly and politely inform the user that no matching records were found.
 - If the result set has many rows, summarize the main findings rather than listing every single item.
 - Do not mention raw technical details (like internal SQL syntax or database mechanics) unless helpful to explaining the answer.
+- Keep output cleanly structured using Markdown headings, bold text, bullet lists, or tables as appropriate.
+- Never write broken or concatenated table lines.
 """
 
 RESULT_SUMMARY_HUMAN_PROMPT = """User Question: {user_query}
