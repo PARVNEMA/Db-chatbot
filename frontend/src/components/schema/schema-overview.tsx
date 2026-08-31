@@ -51,32 +51,36 @@ export function SchemaOverview({
     }
   };
 
-  const handleAutoSuggest = async () => {
-    if (tablesCount === 0) {
-      toast.error(
-        "Please click 'Scan Target DB' first so the AI has introspected tables and columns to describe."
-      );
-      return;
-    }
+  // const handleAutoSuggest = async () => {
+  //   if (tables.length === 0) {
+  //     toast.error(
+  //       "Please click 'Scan Target DB' first so the AI has introspected tables and columns to describe."
+  //     );
+  //     return;
+  //   }
 
-    setIsSuggesting(true);
-    try {
-      const res = await embeddingsApi.autoSuggest(projectId);
-      if (res.success && res.data) {
-        toast.success(
-          `Generated ${res.data.suggested_tables_count} table and ${res.data.suggested_columns_count} column descriptions with AI!`
-        );
-        onIntrospected?.();
-      } else {
-        throw new Error(res.message || "Auto-suggest failed");
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Auto-suggest failed";
-      toast.error(msg);
-    } finally {
-      setIsSuggesting(false);
-    }
-  };
+  //   setIsSuggesting(true);
+  //   try {
+  //     let totalCols = 0;
+  //     let totalTables = 0;
+  //     for (const t of tables) {
+  //       const res = await embeddingsApi.autoSuggest(projectId, t.id);
+  //       if (res.success && res.data) {
+  //         totalTables += res.data.suggested_tables_count;
+  //         totalCols += res.data.suggested_columns_count;
+  //       }
+  //     }
+  //     toast.success(
+  //       `Generated ${totalTables} table and ${totalCols} column descriptions with AI!`
+  //     );
+  //     onIntrospected?.();
+  //   } catch (err) {
+  //     const msg = err instanceof Error ? err.message : "Auto-suggest failed";
+  //     toast.error(msg);
+  //   } finally {
+  //     setIsSuggesting(false);
+  //   }
+  // };
 
   const tables = schemaOverview?.tables || [];
   const tablesCount =
@@ -145,7 +149,7 @@ export function SchemaOverview({
             />
 
             {/* AI Auto-Suggest Descriptions Button */}
-            <Button
+            {/* <Button
               variant="outline"
               size="sm"
               onClick={handleAutoSuggest}
@@ -158,7 +162,7 @@ export function SchemaOverview({
                 <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
               )}
               {isSuggesting ? "Generating..." : "AI Auto-Suggest"}
-            </Button>
+            </Button> */}
 
             {/* Introspect Database Button */}
             <Button

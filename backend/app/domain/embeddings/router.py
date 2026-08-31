@@ -21,6 +21,7 @@ from app.dependencies.auth import get_current_active_user
 from app.domain.auth.models import User
 from app.domain.connections.services import ConnectionService, get_connection_service
 from app.domain.embeddings.schemas import (
+    AutoSuggestRequest,
     AutoSuggestResponse,
     EmbeddingGenerateResponse,
     SchemaSearchRequest,
@@ -156,21 +157,24 @@ async def stream_generate_embeddings_events(
     response_model=ApiResponse[AutoSuggestResponse],
     status_code=status.HTTP_200_OK,
     summary="Auto-suggest table and column descriptions via LLM",
-    description="Use configured LLM to generate initial draft business descriptions for schema tables and columns.",
+    description="Use configured LLM to generate initial draft business descriptions for a specific schema table and its columns.",
 )
 async def auto_suggest_descriptions(
     project_id: uuid.UUID,
+    payload: AutoSuggestRequest,
     service: Annotated[EmbeddingService, Depends(get_embedding_service)],
     current_user: Annotated[User, Depends(get_current_active_user)],
 ) -> ApiResponse[AutoSuggestResponse]:
-    """Trigger LLM auto-suggest for schema annotations."""
+    """Trigger LLM auto-suggest for schema annotations on a specific table."""
     result = await service.auto_suggest_descriptions(
-        project_id=project_id, user_id=current_user.id
+        project_id=project_id,
+        user_id=current_user.id,
+        table_id=payload.table_id,
     )
     return success_response(
         data=result,
         message=(
-            f"Auto-suggest generated {result.suggested_tables_count} table descriptions "
+            f"Auto-suggest generated description for table '{result.table_name}' "
             f"and {result.suggested_columns_count} column descriptions"
         ),
     )

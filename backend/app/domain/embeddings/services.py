@@ -16,6 +16,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.exceptions import NotFoundException
 from app.core.llm import get_embeddings_client, get_llm_client
 from app.dependencies.auth import DbSession
 from app.domain.connections.services import ConnectionService, get_connection_service
@@ -84,8 +85,10 @@ def build_composite_embed_text(
     )
 
 
-def _parse_auto_suggest_json(response_text: str) -> tuple[dict[str, str], dict[str, str]]:
-    """Extract and parse JSON tables and columns from LLM response text."""
+def _parse_auto_suggest_table_json(
+    response_text: str, table_name: str
+) -> tuple[str | None, dict[str, str]]:
+    """Extract and parse JSON table description and column descriptions from LLM response text."""
     import json
     import re
 
@@ -96,22 +99,37 @@ def _parse_auto_suggest_json(response_text: str) -> tuple[dict[str, str], dict[s
         parsed = json.loads(json_str)
     except Exception as parse_err:
         logger.warning("Failed to parse LLM auto-suggest JSON: %s. Raw: %s", parse_err, response_text)
-        return {}, {}
+        return None, {}
 
-    return parsed.get("tables", {}), parsed.get("columns", {})
+    # Extract table description
+    table_desc = parsed.get("table_description")
+    if not table_desc and "tables" in parsed and isinstance(parsed["tables"], dict):
+        table_desc = parsed["tables"].get(table_name)
+
+    # Extract column descriptions
+    col_descs_raw = parsed.get("column_descriptions", {})
+    if not col_descs_raw and "columns" in parsed and isinstance(parsed["columns"], dict):
+        col_descs_raw = parsed["columns"]
+
+    normalized_cols: dict[str, str] = {}
+    if isinstance(col_descs_raw, dict):
+        for k, v in col_descs_raw.items():
+            clean_col = k.split(".")[-1] if "." in k else k
+            desc_val = str(v).strip()
+            normalized_cols[clean_col] = desc_val
+            normalized_cols[k] = desc_val
+
+    return str(table_desc).strip() if table_desc else None, normalized_cols
 
 
-def _build_schema_prompt_text(tables: Sequence[SchemaTable]) -> str:
-    """Format tables and columns into a structured schema summary for LLM prompt."""
-    schema_summary: list[str] = []
-    for t in tables:
-        cols_info: list[str] = []
-        for c in t.columns:
-            pk_flag = " (PRIMARY KEY)" if c.is_primary_key else ""
-            fk_flag = f" (REFERENCES {c.fk_target_table}.{c.fk_target_column})" if c.is_foreign_key else ""
-            cols_info.append(f"  - {c.column_name}: {c.data_type}{pk_flag}{fk_flag}")
-        schema_summary.append(f"Table: {t.table_name}\n" + "\n".join(cols_info))
-    return "\n\n".join(schema_summary)
+def _build_table_prompt_text(table: SchemaTable) -> str:
+    """Format a single table and its columns into a structured schema summary for LLM prompt."""
+    cols_info: list[str] = []
+    for c in table.columns:
+        pk_flag = " (PRIMARY KEY)" if c.is_primary_key else ""
+        fk_flag = f" (REFERENCES {c.fk_target_table}.{c.fk_target_column})" if c.is_foreign_key else ""
+        cols_info.append(f"  - {c.column_name}: {c.data_type}{pk_flag}{fk_flag}")
+    return f"Table: {table.table_name}\n" + "\n".join(cols_info)
 
 
 def _prepare_columns_to_embed(
@@ -390,101 +408,159 @@ class EmbeddingService:
 
         return [SchemaSearchResult.model_validate(r) for r in raw_results]
 
+    async def _persist_table_annotation(
+        self,
+        project_id: uuid.UUID,
+        connection_id: uuid.UUID,
+        table_id: uuid.UUID,
+        table_desc: str | None,
+        existing_annots: Sequence[SchemaAnnotation],
+    ) -> int:
+        """Persist or update table-level annotation."""
+        if not table_desc:
+            return 0
+        if existing_annots:
+            await self._semantic_repo.update_annotation(
+                project_id=project_id,
+                annotation_id=existing_annots[0].id,
+                note=table_desc,
+            )
+        else:
+            await self._semantic_repo.create_annotation(
+                project_id=project_id,
+                connection_id=connection_id,
+                target_type="table",
+                schema_table_id=table_id,
+                note=table_desc,
+                is_auto_generated=True,
+            )
+        return 1
+
+    async def _persist_column_annotations(
+        self,
+        project_id: uuid.UUID,
+        connection_id: uuid.UUID,
+        table: SchemaTable,
+        suggested_columns: dict[str, str],
+        existing_annots: dict[uuid.UUID, SchemaAnnotation],
+    ) -> tuple[int, dict[str, str]]:
+        """Persist or update column-level annotations for a table."""
+        columns_count = 0
+        saved_col_descs: dict[str, str] = {}
+
+        for c in table.columns:
+            col_key = f"{table.table_name}.{c.column_name}"
+            col_note = suggested_columns.get(c.column_name) or suggested_columns.get(col_key)
+            if not col_note:
+                continue
+            clean_col_note = str(col_note).strip()
+            if not clean_col_note:
+                continue
+
+            saved_col_descs[c.column_name] = clean_col_note
+            if c.id in existing_annots:
+                await self._semantic_repo.update_annotation(
+                    project_id=project_id,
+                    annotation_id=existing_annots[c.id].id,
+                    note=clean_col_note,
+                )
+            else:
+                await self._semantic_repo.create_annotation(
+                    project_id=project_id,
+                    connection_id=connection_id,
+                    target_type="column",
+                    schema_column_id=c.id,
+                    note=clean_col_note,
+                    is_auto_generated=True,
+                )
+            columns_count += 1
+
+        return columns_count, saved_col_descs
+
     async def auto_suggest_descriptions(
         self,
         project_id: uuid.UUID,
         user_id: uuid.UUID,
+        table_id: uuid.UUID,
     ) -> AutoSuggestResponse:
-        """Use configured LLM to generate draft business descriptions for schema tables and columns."""
-
+        """Use configured LLM to generate draft business descriptions for a specific schema table and its columns."""
         from langchain_core.messages import HumanMessage, SystemMessage
-
 
         settings = get_settings()
         connection = await self._connection_service.get_connection(
             project_id=project_id, user_id=user_id
         )
 
-        # 1. Fetch tables with columns
-        tables = await self._schema_repo.get_tables(
-            project_id=project_id, connection_id=connection.id
+        # 1. Fetch the target table by table_id
+        table = await self._schema_repo.get_table_by_id(
+            project_id=project_id,
+            connection_id=connection.id,
+            table_id=table_id,
         )
-        if not tables:
-            return AutoSuggestResponse(
-                project_id=project_id,
-                connection_id=connection.id,
-                suggested_tables_count=0,
-                suggested_columns_count=0,
-                model=settings.LLM_MODEL,
+        if table is None:
+            raise NotFoundException(
+                detail=f"Table '{table_id}' not found in introspected schema.",
+                error_code="TABLE_NOT_FOUND",
             )
 
-        # 2. Fetch existing annotations to avoid overwriting user edits
-        existing_annots = await self._semantic_repo.get_annotations_for_connection(
-            project_id=project_id, connection_id=connection.id
+        # 2. Fetch existing annotations for this table and its columns
+        existing_table_annots = await self._semantic_repo.get_annotations_for_table(
+            project_id=project_id,
+            connection_id=connection.id,
+            schema_table_id=table.id,
         )
-        annotated_table_ids = {a.schema_table_id for a in existing_annots if a.schema_table_id}
-        annotated_col_ids = {a.schema_column_id for a in existing_annots if a.schema_column_id}
+        existing_col_annots: dict[uuid.UUID, SchemaAnnotation] = {}
+        for c in table.columns:
+            annot = await self._semantic_repo.get_annotation_for_column(
+                project_id=project_id,
+                connection_id=connection.id,
+                schema_column_id=c.id,
+            )
+            if annot is not None:
+                existing_col_annots[c.id] = annot
 
-        # 3. Build schema summary for LLM prompt
-        prompt_schema_text = _build_schema_prompt_text(tables)
+        # 3. Build single-table schema summary for LLM prompt
+        prompt_table_text = _build_table_prompt_text(table)
 
         system_msg = SystemMessage(
             content=(
                 "You are an expert database architect and data analyst. "
-                "Your task is to generate concise, clear, and business-friendly descriptions for database tables and columns. "
+                "Your task is to generate concise, clear, and business-friendly descriptions for a database table and each of its columns. "
                 "These descriptions help non-technical users understand data semantics. "
                 "Respond ONLY with a valid JSON object matching this structure:\n"
                 "{\n"
-                '  "tables": {\n'
-                '    "table_name": "Description of table purpose and entities stored"\n'
-                "  },\n"
-                '  "columns": {\n'
-                '    "table_name.column_name": "Description of what this column represents"\n'
+                '  "table_description": "Description of table purpose and entities stored",\n'
+                '  "column_descriptions": {\n'
+                '    "column_name": "Description of what this column represents"\n'
                 "  }\n"
                 "}"
             )
         )
         user_msg = HumanMessage(
-            content=f"Here is the database schema:\n\n{prompt_schema_text}"
+            content=f"Here is the database table schema:\n\n{prompt_table_text}"
         )
 
         llm = get_llm_client(temperature=0.2)
         response = await llm.ainvoke([system_msg, user_msg])
-        suggested_tables, suggested_columns = _parse_auto_suggest_json(str(response.content).strip())
+        suggested_table_desc, suggested_columns = _parse_auto_suggest_table_json(
+            str(response.content).strip(), table_name=table.table_name
+        )
 
-        tables_count = 0
-        columns_count = 0
+        tables_count = await self._persist_table_annotation(
+            project_id=project_id,
+            connection_id=connection.id,
+            table_id=table.id,
+            table_desc=suggested_table_desc,
+            existing_annots=existing_table_annots,
+        )
 
-        # Save table annotations
-        for t in tables:
-            if t.id not in annotated_table_ids and t.table_name in suggested_tables:
-                note = str(suggested_tables[t.table_name]).strip()
-                if note:
-                    await self._semantic_repo.create_annotation(
-                        project_id=project_id,
-                        connection_id=connection.id,
-                        target_type="table",
-                        schema_table_id=t.id,
-                        note=note,
-                        is_auto_generated=True,
-                    )
-                    tables_count += 1
-
-            # Save column annotations
-            for c in t.columns:
-                col_key = f"{t.table_name}.{c.column_name}"
-                if c.id not in annotated_col_ids and (col_key in suggested_columns or c.column_name in suggested_columns):
-                    col_note = str(suggested_columns.get(col_key) or suggested_columns.get(c.column_name)).strip()
-                    if col_note:
-                        await self._semantic_repo.create_annotation(
-                            project_id=project_id,
-                            connection_id=connection.id,
-                            target_type="column",
-                            schema_column_id=c.id,
-                            note=col_note,
-                            is_auto_generated=True,
-                        )
-                        columns_count += 1
+        columns_count, saved_col_descs = await self._persist_column_annotations(
+            project_id=project_id,
+            connection_id=connection.id,
+            table=table,
+            suggested_columns=suggested_columns,
+            existing_annots=existing_col_annots,
+        )
 
         # Re-sync embeddings with new annotations
         if tables_count > 0 or columns_count > 0:
@@ -493,6 +569,26 @@ class EmbeddingService:
         return AutoSuggestResponse(
             project_id=project_id,
             connection_id=connection.id,
+            table_id=table.id,
+            table_name=table.table_name,
+            table_description=suggested_table_desc,
+            column_descriptions=saved_col_descs,
+            suggested_tables_count=tables_count,
+            suggested_columns_count=columns_count,
+            model=settings.LLM_MODEL,
+        )
+
+        # Re-sync embeddings with new annotations
+        if tables_count > 0 or columns_count > 0:
+            await self.generate_and_store_for_connection(project_id, connection.id)
+
+        return AutoSuggestResponse(
+            project_id=project_id,
+            connection_id=connection.id,
+            table_id=table.id,
+            table_name=table.table_name,
+            table_description=suggested_table_desc,
+            column_descriptions=saved_col_descs,
             suggested_tables_count=tables_count,
             suggested_columns_count=columns_count,
             model=settings.LLM_MODEL,

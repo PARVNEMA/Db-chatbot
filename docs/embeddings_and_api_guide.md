@@ -43,7 +43,7 @@ graph TD
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/v1/projects/{id}/schema/introspect` | Scans target database tables & columns | Saves schema **AND automatically generates embeddings** for all columns |
 | `POST` | `/api/v1/projects/{id}/schema/search` | Natural language schema linking | Embeds user query → performs pgvector `<=>` cosine similarity search |
-| `POST` | `/api/v1/projects/{id}/schema/auto-suggest` | Uses LLM to draft descriptions | Prompts LLM for descriptions → saves `SchemaAnnotation` → re-embeds |
+| `POST` | `/api/v1/projects/{id}/schema/auto-suggest` | Uses LLM to draft descriptions for a specific table (`table_id`) & its columns | Prompts LLM for descriptions → saves `SchemaAnnotation` → re-embeds |
 | `POST` | `/api/v1/projects/{id}/schema/embeddings/generate` | Manual vector regeneration | Reconstructs composite text for all columns and stores 384d vectors |
 | `POST/PUT/DELETE` | `/api/v1/projects/{id}/annotations` | User edits table/column notes | Updates annotation record → immediately syncs vector for that column |
 

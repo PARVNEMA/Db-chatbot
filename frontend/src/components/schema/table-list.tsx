@@ -7,11 +7,14 @@ import {
   ChevronRight,
   Search,
   RefreshCw,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
 import type { TableDetailResponse } from "@/types/schema";
 import type { Annotation } from "@/types/annotation";
 import { schemaApi } from "@/lib/api/schema";
 import { annotationsApi } from "@/lib/api/annotations";
+import { embeddingsApi } from "@/lib/api/embeddings";
 import { ColumnTable } from "./column-table";
 import { AnnotationEditor } from "./annotation-editor";
 import { Input } from "@/components/ui/input";
@@ -34,6 +37,27 @@ export function TableList({
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set());
+  const [suggestingTableId, setSuggestingTableId] = useState<string | null>(null);
+
+  const handleAutoSuggestTable = async (tableId: string, tableName: string) => {
+    setSuggestingTableId(tableId);
+    try {
+      const res = await embeddingsApi.autoSuggest(projectId, tableId);
+      if (res.success && res.data) {
+        toast.success(
+          `Generated description for table "${tableName}" and ${res.data.suggested_columns_count} columns!`
+        );
+        await fetchData();
+      } else {
+        throw new Error(res.message || "Auto-suggest failed");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Auto-suggest failed";
+      toast.error(msg);
+    } finally {
+      setSuggestingTableId(null);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     try {
@@ -230,18 +254,36 @@ export function TableList({
                   </div>
                 </div>
 
-                {/* Table Level Annotation Editor (prevent parent accordion toggle) */}
+                {/* Table Level Actions & Annotation Editor (prevent parent accordion toggle) */}
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className="sm:max-w-md text-left"
+                  className="flex items-center gap-2.5 sm:max-w-xl text-left"
                 >
-                  <AnnotationEditor
-                    projectId={projectId}
-                    targetType="table"
-                    schemaTableId={table.id}
-                    initialAnnotation={tableAnnotation}
-                    onSaved={fetchData}
-                  />
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => void handleAutoSuggestTable(table.id, table.table_name)}
+                    disabled={suggestingTableId === table.id}
+                    className="border-zinc-700 bg-zinc-900/90 hover:bg-zinc-800 text-zinc-300 hover:text-white text-xs gap-1.5 shrink-0"
+                    title="Auto-generate AI descriptions for this table and its columns"
+                  >
+                    {suggestingTableId === table.id ? (
+                      <Loader2 className="h-3 w-3 animate-spin text-indigo-400" />
+                    ) : (
+                      <Sparkles className="h-3 w-3 text-indigo-400" />
+                    )}
+                    {suggestingTableId === table.id ? "Suggesting..." : "Auto-Suggest"}
+                  </Button>
+
+                  <div className="flex-1 min-w-[200px]">
+                    <AnnotationEditor
+                      projectId={projectId}
+                      targetType="table"
+                      schemaTableId={table.id}
+                      initialAnnotation={tableAnnotation}
+                      onSaved={fetchData}
+                    />
+                  </div>
                 </div>
               </div>
 

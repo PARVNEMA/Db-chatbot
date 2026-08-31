@@ -68,6 +68,15 @@ class EmbeddingGenerateResponse(BaseModel):
     dimensions: int
 
 
+class AutoSuggestRequest(BaseModel):
+    """Payload for auto-suggesting schema annotations for a specific table."""
+
+    table_id: uuid.UUID = Field(
+        ...,
+        description="Compulsory UUID of the schema table to auto-suggest descriptions for",
+    )
+
+
 class AutoSuggestResponse(BaseModel):
     """Response returned when auto-suggesting schema annotations."""
 
@@ -75,6 +84,11 @@ class AutoSuggestResponse(BaseModel):
 
     project_id: uuid.UUID
     connection_id: uuid.UUID
-    suggested_tables_count: int
-    suggested_columns_count: int
+    table_id: uuid.UUID
+    table_name: str
+    table_description: str | None = None
+    column_descriptions: dict[str, str] = Field(default_factory=dict)
+    suggested_tables_count: int = 1
+    suggested_columns_count: int = 0
     model: str
+

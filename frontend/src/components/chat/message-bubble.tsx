@@ -5,6 +5,7 @@ import { Bot, User as UserIcon } from "lucide-react";
 import type { ChatMessage } from "@/types/chat";
 import { SqlViewer } from "./sql-viewer";
 import { QueryResultTable } from "./query-result-table";
+import { MarkdownRenderer } from "./markdown-renderer";
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -52,8 +53,8 @@ export function MessageBubble({
 
       <div className="flex-1 space-y-2">
         {/* Main Text Content */}
-        <div className="p-4 rounded-2xl rounded-tl-none bg-zinc-900/90 border border-zinc-800 text-zinc-200 text-sm shadow-md leading-relaxed font-sans">
-          {message.content}
+        <div className="p-4 rounded-2xl rounded-tl-none bg-zinc-900/90 border border-zinc-800 text-zinc-200 text-sm shadow-md leading-relaxed font-sans overflow-hidden">
+          <MarkdownRenderer content={message.content} />
         </div>
 
         {/* Embedded Generated SQL */}

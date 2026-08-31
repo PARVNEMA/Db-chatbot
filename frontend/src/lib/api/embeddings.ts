@@ -22,9 +22,10 @@ export const embeddingsApi = {
     apiClient.post(`/projects/${projectId}/schema/embeddings/generate`),
 
   autoSuggest: (
-    projectId: string
+    projectId: string,
+    tableId: string
   ): Promise<ApiResponse<AutoSuggestResponse>> =>
-    apiClient.post(`/projects/${projectId}/schema/auto-suggest`),
+    apiClient.post(`/projects/${projectId}/schema/auto-suggest`, { table_id: tableId }),
 };
 
 /**

@@ -32,6 +32,8 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.security import decrypt
 
+# Default connection timeout in seconds for target DBs
+CONNECT_TIMEOUT_SECONDS: float = 10.0
 # Max rows returned per query execution
 QUERY_ROW_LIMIT: int = 1000
 # Query execution timeout in seconds
@@ -85,6 +87,22 @@ def serialize_row_value(val: Any) -> Any:
     return val
 
 
+def _build_connect_args(
+    normalized_url: str, timeout_seconds: float = CONNECT_TIMEOUT_SECONDS
+) -> dict[str, Any]:
+    """Build dialect-specific connect_args with appropriate timeout parameters.
+
+    - asyncpg (PostgreSQL): uses ``timeout`` (seconds, float).
+    - asyncmy (MySQL/MariaDB): uses ``connect_timeout`` (seconds, int).
+    - aiosqlite (SQLite): no timeout args needed.
+    """
+    if "asyncpg" in normalized_url:
+        return {"timeout": float(timeout_seconds)}
+    if "asyncmy" in normalized_url:
+        return {"connect_timeout": int(timeout_seconds)}
+    return {}
+
+
 class ConnectionManager:
     """Manages pooled SQLAlchemy engines for tenant target databases."""
 
@@ -108,6 +126,8 @@ class ConnectionManager:
                 pool_pre_ping=True,
                 pool_size=5,
                 max_overflow=10,
+                pool_recycle=3600,
+                connect_args=_build_connect_args(normalized_url),
             )
         return self._engines[key]
 
@@ -134,7 +154,7 @@ class ConnectionManager:
     async def test_connection(
         self,
         connection_string: str,
-        timeout_seconds: float = 5.0,
+        timeout_seconds: float = CONNECT_TIMEOUT_SECONDS,
     ) -> tuple[bool, float | None, str | None, str]:
         """Test database connectivity with the provided connection string.
 
@@ -144,14 +164,11 @@ class ConnectionManager:
         temp_engine: AsyncEngine | None = None
         try:
             normalized_url = normalize_connection_url(connection_string)
-            connect_args: dict[str, Any] = {}
-            if "asyncpg" in normalized_url:
-                connect_args = {"timeout": float(timeout_seconds)}
 
             temp_engine = create_async_engine(
                 normalized_url,
                 pool_pre_ping=True,
-                connect_args=connect_args,
+                connect_args=_build_connect_args(normalized_url, timeout_seconds),
             )
             start_time = time.perf_counter()
 

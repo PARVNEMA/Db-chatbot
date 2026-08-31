@@ -231,8 +231,8 @@ async def test_search_schema_endpoint(
 async def test_auto_suggest_endpoint(
     client: AsyncClient, db_session: AsyncSession
 ) -> None:
-    """Test POST /{project_id}/schema/auto-suggest."""
-    _, headers, project, _, _, _ = await setup_embeddings_test_context(
+    """Test POST /{project_id}/schema/auto-suggest with compulsory table_id."""
+    _, headers, project, _, table, _ = await setup_embeddings_test_context(
         db_session, "autosuggest_test@test.com"
     )
 
@@ -242,12 +242,10 @@ async def test_auto_suggest_endpoint(
             content="""
 ```json
 {
-  "tables": {
-    "orders": "Customer sales and purchase orders"
-  },
-  "columns": {
-    "orders.total_amount": "Total price of the order in USD",
-    "orders.customer_id": "Foreign key reference to customers"
+  "table_description": "Customer sales and purchase orders",
+  "column_descriptions": {
+    "total_amount": "Total price of the order in USD",
+    "customer_id": "Foreign key reference to customers"
   }
 }
 ```
@@ -262,15 +260,38 @@ async def test_auto_suggest_endpoint(
         patch("app.domain.embeddings.services.get_llm_client", return_value=mock_llm),
         patch("app.domain.embeddings.services.get_embeddings_client", return_value=mock_embeddings),
     ):
+        # 1. Success case with compulsory table_id
         response = await client.post(
             f"/api/v1/projects/{project.id}/schema/auto-suggest",
+            json={"table_id": str(table.id)},
             headers=headers,
         )
         assert response.status_code == 200
         body = response.json()
         assert body["success"] is True
+        assert body["data"]["table_id"] == str(table.id)
+        assert body["data"]["table_name"] == "orders"
+        assert body["data"]["table_description"] == "Customer sales and purchase orders"
         assert body["data"]["suggested_tables_count"] == 1
         assert body["data"]["suggested_columns_count"] == 2
+
+        # 2. Missing table_id returns 422 Unprocessable Entity
+        missing_payload_response = await client.post(
+            f"/api/v1/projects/{project.id}/schema/auto-suggest",
+            json={},
+            headers=headers,
+        )
+        assert missing_payload_response.status_code == 422
+
+        # 3. Non-existent table_id returns 404 Not Found
+        random_table_id = str(uuid.uuid4())
+        not_found_response = await client.post(
+            f"/api/v1/projects/{project.id}/schema/auto-suggest",
+            json={"table_id": random_table_id},
+            headers=headers,
+        )
+        assert not_found_response.status_code == 404
+
 
 
 @pytest.mark.asyncio

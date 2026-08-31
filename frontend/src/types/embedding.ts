@@ -25,14 +25,25 @@ export interface EmbeddingGenerateResponse {
   dimensions: number;
 }
 
+export interface AutoSuggestRequest {
+  table_id: string;
+}
+
 export interface AutoSuggestResponse {
+  project_id: string;
+  connection_id: string;
+  table_id: string;
+  table_name: string;
+  table_description?: string | null;
+  column_descriptions?: Record<string, string>;
   suggested_tables_count: number;
   suggested_columns_count: number;
-  total_annotations_created: number;
+  model: string;
 }
 
 export interface EmbeddingSSEEvent {
   event:
+    | "start"
     | "progress"
     | "table_start"
     | "column_embedded"

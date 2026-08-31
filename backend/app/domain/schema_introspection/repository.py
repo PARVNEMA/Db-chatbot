@@ -57,6 +57,25 @@ class SchemaIntrospectionRepository:
         result = await self._db.execute(stmt)
         return list(result.scalars().all())
 
+    async def get_table_by_id(
+        self,
+        project_id: uuid.UUID,
+        connection_id: uuid.UUID,
+        table_id: uuid.UUID,
+    ) -> SchemaTable | None:
+        """Fetch a specific table by ID along with its columns."""
+        stmt = (
+            select(SchemaTable)
+            .where(
+                SchemaTable.project_id == project_id,
+                SchemaTable.connection_id == connection_id,
+                SchemaTable.id == table_id,
+            )
+            .options(selectinload(SchemaTable.columns))
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def get_table_by_name(
         self,
         project_id: uuid.UUID,
