@@ -30,60 +30,100 @@ from app.domain.semantic_layer.repository import SchemaAnnotationRepository
 logger = logging.getLogger(__name__)
 
 
+# def build_composite_embed_text(
+#     column: SchemaColumn,
+#     table: SchemaTable,
+#     table_annotations: Sequence[SchemaAnnotation] | None = None,
+#     column_annotations: Sequence[SchemaAnnotation] | None = None,
+# ) -> str:
+#     """Build a rich composite string fusing structural schema metadata and business descriptions."""
+#     # Sibling columns summary
+#     col_names = [c.column_name for c in table.columns] if table.columns else [column.column_name]
+#     pk_cols = [c.column_name for c in table.columns if c.is_primary_key] if table.columns else []
+#     if column.is_primary_key and column.column_name not in pk_cols:
+#         pk_cols.append(column.column_name)
+
+#     fk_links: list[str] = []
+#     if table.columns:
+#         for c in table.columns:
+#             if c.is_foreign_key and c.fk_target_table:
+#                 fk_links.append(f"{c.column_name} -> {c.fk_target_table}.{c.fk_target_column or 'id'}")
+#     elif column.is_foreign_key and column.fk_target_table:
+#         fk_links.append(f"{column.column_name} -> {column.fk_target_table}.{column.fk_target_column or 'id'}")
+
+#     # Notes
+#     t_notes = [a.note for a in (table_annotations or []) if a.note.strip()]
+#     c_notes = [a.note for a in (column_annotations or []) if a.note.strip()]
+#     table_desc = "; ".join(t_notes) if t_notes else "No table description provided"
+#     col_desc = "; ".join(c_notes) if c_notes else "No column description provided"
+
+#     schema_prefix = f"{table.schema_name}." if table.schema_name else ""
+#     fk_summary = ", ".join(fk_links) if fk_links else "None"
+#     pk_summary = ", ".join(pk_cols) if pk_cols else "None"
+#     nullable_str = "yes" if column.is_nullable else "no"
+#     pk_str = "yes" if column.is_primary_key else "no"
+#     fk_target = (
+#         f"{column.fk_target_table}.{column.fk_target_column or 'id'}"
+#         if column.is_foreign_key
+#         else "no"
+#     )
+
+#     return (
+#         f"Table: {schema_prefix}{table.table_name}\n"
+#         f"Columns: {', '.join(col_names)}\n"
+#         f"Primary Keys: {pk_summary}\n"
+#         f"Foreign Keys: {fk_summary}\n"
+#         f"---\n"
+#         f"Column: {column.column_name}\n"
+#         f"Type: {column.data_type}\n"
+#         f"Nullable: {nullable_str}\n"
+#         f"Primary Key: {pk_str}\n"
+#         f"Foreign Key: {fk_target}\n"
+#         f"---\n"
+#         f"Table Description: {table_desc}\n"
+#         f"Column Description: {col_desc}"
+#     )
+
+# this builds the embeddings in a very natural way instead of just structured
 def build_composite_embed_text(
     column: SchemaColumn,
     table: SchemaTable,
     table_annotations: Sequence[SchemaAnnotation] | None = None,
     column_annotations: Sequence[SchemaAnnotation] | None = None,
 ) -> str:
-    """Build a rich composite string fusing structural schema metadata and business descriptions."""
-    # Sibling columns summary
-    col_names = [c.column_name for c in table.columns] if table.columns else [column.column_name]
-    pk_cols = [c.column_name for c in table.columns if c.is_primary_key] if table.columns else []
-    if column.is_primary_key and column.column_name not in pk_cols:
-        pk_cols.append(column.column_name)
-
-    fk_links: list[str] = []
-    if table.columns:
-        for c in table.columns:
-            if c.is_foreign_key and c.fk_target_table:
-                fk_links.append(f"{c.column_name} -> {c.fk_target_table}.{c.fk_target_column or 'id'}")
-    elif column.is_foreign_key and column.fk_target_table:
-        fk_links.append(f"{column.column_name} -> {column.fk_target_table}.{column.fk_target_column or 'id'}")
-
-    # Notes
+    """Build a semantically rich natural language string for embedding."""
+    # Lead with semantic/business descriptions (highest signal for search)
     t_notes = [a.note for a in (table_annotations or []) if a.note.strip()]
     c_notes = [a.note for a in (column_annotations or []) if a.note.strip()]
-    table_desc = "; ".join(t_notes) if t_notes else "No table description provided"
-    col_desc = "; ".join(c_notes) if c_notes else "No column description provided"
+    table_desc = "; ".join(t_notes) if t_notes else f"Database table named {table.table_name}"
+    col_desc = "; ".join(c_notes) if c_notes else f"Column named {column.column_name}"
 
     schema_prefix = f"{table.schema_name}." if table.schema_name else ""
-    fk_summary = ", ".join(fk_links) if fk_links else "None"
-    pk_summary = ", ".join(pk_cols) if pk_cols else "None"
-    nullable_str = "yes" if column.is_nullable else "no"
-    pk_str = "yes" if column.is_primary_key else "no"
-    fk_target = (
-        f"{column.fk_target_table}.{column.fk_target_column or 'id'}"
-        if column.is_foreign_key
-        else "no"
-    )
 
-    return (
-        f"Table: {schema_prefix}{table.table_name}\n"
-        f"Columns: {', '.join(col_names)}\n"
-        f"Primary Keys: {pk_summary}\n"
-        f"Foreign Keys: {fk_summary}\n"
-        f"---\n"
-        f"Column: {column.column_name}\n"
-        f"Type: {column.data_type}\n"
-        f"Nullable: {nullable_str}\n"
-        f"Primary Key: {pk_str}\n"
-        f"Foreign Key: {fk_target}\n"
-        f"---\n"
-        f"Table Description: {table_desc}\n"
-        f"Column Description: {col_desc}"
-    )
+    # Natural language sentence structure (embedding models understand prose best)
+    parts = [
+        f"{col_desc}.",
+        f"This is the {column.column_name} column (type: {column.data_type}) "
+        f"in the {schema_prefix}{table.table_name} table.",
+        f"Table context: {table_desc}.",
+    ]
 
+    # Add relationship context only when present (high value for JOINs)
+    if column.is_primary_key:
+        parts.append(f"{column.column_name} is the primary key identifier for {table.table_name}.")
+    if column.is_foreign_key and column.fk_target_table:
+        target = f"{column.fk_target_table}.{column.fk_target_column or 'id'}"
+        parts.append(
+            f"{column.column_name} is a foreign key referencing {target}, "
+            f"linking {table.table_name} to {column.fk_target_table}."
+        )
+
+    # Add sibling column names for table-level context
+    sibling_names = [c.column_name for c in table.columns] if table.columns else []
+    if sibling_names:
+        parts.append(f"Other columns in this table: {', '.join(sibling_names)}.")
+
+    return " ".join(parts)
 
 def _parse_auto_suggest_table_json(
     response_text: str, table_name: str
@@ -389,7 +429,8 @@ class EmbeddingService:
         project_id: uuid.UUID,
         user_id: uuid.UUID,
         query: str,
-        top_k: int = 10,
+        top_k: int = 15,
+        min_similarity: float = 0.65,
     ) -> list[SchemaSearchResult]:
         """Perform vector similarity search over introspected database schema."""
         connection = await self._connection_service.get_connection(
@@ -406,7 +447,9 @@ class EmbeddingService:
             top_k=top_k,
         )
 
-        return [SchemaSearchResult.model_validate(r) for r in raw_results]
+        return [SchemaSearchResult.model_validate(r)
+                for r in raw_results
+    if r.get("similarity_score", 0) >= min_similarity]
 
     async def _persist_table_annotation(
         self,

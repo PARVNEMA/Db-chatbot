@@ -124,7 +124,7 @@ class EmbeddingRepository:
         project_id: uuid.UUID,
         connection_id: uuid.UUID,
         query_embedding: list[float],
-        top_k: int = 10,
+        top_k: int = 15,
     ) -> list[dict[str, Any]]:
         """Search schema embeddings using pgvector cosine distance.
 

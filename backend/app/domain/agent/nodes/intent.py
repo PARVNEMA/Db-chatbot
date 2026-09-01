@@ -107,7 +107,6 @@ def create_intent_node(
                 project_id=project_id,
                 user_id=deps.user_id,
                 query=search_query,
-                top_k=5,
             )
             if search_results:
                 relevant_schema, schema_context = format_schema_context_from_results(search_results)

@@ -30,7 +30,7 @@ INTENT_SYSTEM_PROMPT = """You are an expert database query classifier and semant
 Your task is to analyze the user's natural language question regarding a database and extract structured intent metadata.
 
 Classify the query into exactly one of the following intent types:
-- "lookup": Retrieving specific rows, details, or single entities (e.g. "Find customer with ID 42", "Show details for order #1002").
+- "lookup": all the Database Related table,Query,Sechema should be included. Retrieving specific rows, details, or single entities (e.g. "Find customer with ID 42", "Show details for order #1002",User Can Ask for Table Schema,Column Schema,etc. also It Can Ask for Table Data,Database Detail, like which table I conneced with what dialect).
 - "aggregation": Computing metrics, totals, counts, averages, minimums, maximums, or groupings (e.g. "Total revenue by department", "How many users registered this month").
 - "comparison": Comparing metrics across categories, cohorts, or time periods (e.g. "Compare sales in Q1 vs Q2", "Which region had higher churn?").
 - "trend": Historical patterns, time-series analysis, or growth over time (e.g. "Monthly active users over the past year", "Weekly revenue growth").

@@ -180,11 +180,11 @@ class SchemaEmbedding(TimestampMixin, Base):
         nullable=False,
         index=True,
     )
-    # 384 dimensions for BAAI/bge-small-en-v1.5 / sentence-transformers/all-MiniLM-L6-v2
-    embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=False)
+    # 768 dimensions for BAAI/bge-base-en-v1.5 / sentence-transformers/all-MiniLM-L6-v2
+    embedding: Mapped[list[float]] = mapped_column(Vector(768), nullable=False)
     embed_text: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(
-        String(100), default="BAAI/bge-small-en-v1.5", nullable=False
+        String(100), default="BAAI/bge-base-en-v1.5", nullable=False
     )
 
     column: Mapped[SchemaColumn] = relationship("SchemaColumn", back_populates="embedding")

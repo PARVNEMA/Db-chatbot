@@ -172,10 +172,14 @@ async def test_generate_embeddings_endpoint(
         db_session, "gen_test@test.com"
     )
 
+    from app.core.config import get_settings
+    settings = get_settings()
+    dim = settings.EMBEDDING_DIMENSIONS
+
     mock_embeddings_client = MagicMock()
     mock_embeddings_client.embed_documents.return_value = [
-        [0.1] * 384,
-        [0.2] * 384,
+        [0.1] * dim,
+        [0.2] * dim,
     ]
 
     with patch("app.domain.embeddings.services.get_embeddings_client", return_value=mock_embeddings_client):
@@ -187,7 +191,7 @@ async def test_generate_embeddings_endpoint(
         body = response.json()
         assert body["success"] is True
         assert body["data"]["embedded_columns_count"] == 2
-        assert body["data"]["dimensions"] == 384
+        assert body["data"]["dimensions"] == dim
 
 
 @pytest.mark.asyncio
@@ -199,9 +203,13 @@ async def test_search_schema_endpoint(
         db_session, "search_test@test.com"
     )
 
+    from app.core.config import get_settings
+    settings = get_settings()
+    dim = settings.EMBEDDING_DIMENSIONS
+
     mock_embeddings_client = MagicMock()
-    mock_embeddings_client.embed_documents.return_value = [[0.1] * 384, [0.2] * 384]
-    mock_embeddings_client.embed_query.return_value = [0.15] * 384
+    mock_embeddings_client.embed_documents.return_value = [[0.1] * dim, [0.2] * dim]
+    mock_embeddings_client.embed_query.return_value = [0.15] * dim
 
     with patch("app.domain.embeddings.services.get_embeddings_client", return_value=mock_embeddings_client):
         # 1. Generate embeddings first
@@ -236,6 +244,10 @@ async def test_auto_suggest_endpoint(
         db_session, "autosuggest_test@test.com"
     )
 
+    from app.core.config import get_settings
+    settings = get_settings()
+    dim = settings.EMBEDDING_DIMENSIONS
+
     mock_llm = MagicMock()
     mock_llm.ainvoke = AsyncMock(
         return_value=AIMessage(
@@ -254,7 +266,7 @@ async def test_auto_suggest_endpoint(
     )
 
     mock_embeddings = MagicMock()
-    mock_embeddings.embed_documents.return_value = [[0.1] * 384, [0.2] * 384]
+    mock_embeddings.embed_documents.return_value = [[0.1] * dim, [0.2] * dim]
 
     with (
         patch("app.domain.embeddings.services.get_llm_client", return_value=mock_llm),
@@ -303,10 +315,14 @@ async def test_generate_embeddings_streaming_endpoint(
         db_session, "sse_test@test.com"
     )
 
+    from app.core.config import get_settings
+    settings = get_settings()
+    dim = settings.EMBEDDING_DIMENSIONS
+
     mock_embeddings_client = MagicMock()
     mock_embeddings_client.embed_documents.return_value = [
-        [0.1] * 384,
-        [0.2] * 384,
+        [0.1] * dim,
+        [0.2] * dim,
     ]
 
     with patch("app.domain.embeddings.services.get_embeddings_client", return_value=mock_embeddings_client):

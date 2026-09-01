@@ -37,7 +37,7 @@ export function SchemaSearch({ projectId }: SchemaSearchProps): React.JSX.Elemen
     try {
       const res = await embeddingsApi.search(projectId, {
         query: query.trim(),
-        top_k: 6,
+        top_k: 10,
       });
 
       if (res.success && res.data) {
