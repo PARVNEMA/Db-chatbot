@@ -430,7 +430,7 @@ class EmbeddingService:
         user_id: uuid.UUID,
         query: str,
         top_k: int = 15,
-        min_similarity: float = 0.65,
+        min_similarity: float = 0.45,
     ) -> list[SchemaSearchResult]:
         """Perform vector similarity search over introspected database schema."""
         connection = await self._connection_service.get_connection(

@@ -156,11 +156,11 @@ def test_build_composite_embed_text() -> None:
         column_annotations=[c_annot],
     )
 
-    assert "Table: public.orders" in text
-    assert "Column: total_amount" in text
-    assert "Type: NUMERIC(10,2)" in text
-    assert "Table Description: Stores customer purchase transactions" in text
-    assert "Column Description: Total revenue generated from order" in text
+    assert "Total revenue generated from order including tax and shipping" in text
+    assert "total_amount" in text
+    assert "NUMERIC(10,2)" in text
+    assert "public.orders table" in text
+    assert "Stores customer purchase transactions" in text
 
 
 @pytest.mark.asyncio

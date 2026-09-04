@@ -88,7 +88,7 @@ def _format_node_event(node_name: str, node_output: dict[str, Any]) -> str | Non
                 "sample_rows": rows[:10],
             },
         )
-    if node_name in {"result_formatter", "error_terminal", "general_chat"}:
+    if node_name in {"result_formatter", "error_terminal", "general_chat", "unsafe_handler"}:
         return _format_sse(
             "summary_ready",
             {

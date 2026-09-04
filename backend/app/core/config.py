@@ -28,8 +28,8 @@ class Settings(BaseSettings):
     # --- AI & Embeddings Providers ---
     HUGGINGFACE_API_KEY: str = Field(default="")
     EMBEDDING_PROVIDER: str = Field(default="huggingface")  # "huggingface" | "openai"
-    EMBEDDING_MODEL: str = Field(default="BAAI/bge-base-en-v1.5")
-    EMBEDDING_DIMENSIONS: int = Field(default=768)
+    EMBEDDING_MODEL: str = Field(default="BAAI/bge-large-en-v1.5")
+    EMBEDDING_DIMENSIONS: int = Field(default=1024)
 
     LLM_PROVIDER: str = Field(default="huggingface")  # "huggingface" | "anthropic" | "openai" | "groq"
     LLM_MODEL: str = Field(default="mistralai/Mistral-7B-Instruct-v0.3")

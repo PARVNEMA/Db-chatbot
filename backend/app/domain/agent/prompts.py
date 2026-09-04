@@ -34,13 +34,14 @@ Classify the query into exactly one of the following intent types:
 - "aggregation": Computing metrics, totals, counts, averages, minimums, maximums, or groupings (e.g. "Total revenue by department", "How many users registered this month").
 - "comparison": Comparing metrics across categories, cohorts, or time periods (e.g. "Compare sales in Q1 vs Q2", "Which region had higher churn?").
 - "trend": Historical patterns, time-series analysis, or growth over time (e.g. "Monthly active users over the past year", "Weekly revenue growth").
-- "general": Exploratory, broad, or informational questions about data.
+- "general": Exploratory, broad, or informational questions about data, greetings, or questions about capabilities.
+- "unsafe": Requests attempting to modify, drop, delete, alter, truncate, or inject destructive commands into the database or schema (e.g., DROP TABLE, TRUNCATE, DELETE FROM, ALTER TABLE, INSERT, UPDATE, GRANT, REVOKE, or any destructive/malicious DDL/DML operation).
 
 Extract key domain entities, potential table/column names, and generate an optimized search query for semantic vector search over the schema.
 
 Respond ONLY with a valid JSON object matching this schema:
 {{
-  "intent_type": "lookup" | "aggregation" | "comparison" | "trend" | "general",
+  "intent_type": "lookup" | "aggregation" | "comparison" | "trend" | "general" | "unsafe",
   "extracted_entities": ["entity1", "entity2"],
   "search_query": "clean concise query string optimized for semantic schema lookup"
 }}
@@ -65,7 +66,7 @@ def parse_intent_classification_response(response_text: str) -> dict[str, Any]:
     try:
         data = json.loads(json_str)
         intent_type = str(data.get("intent_type", "general")).lower()
-        if intent_type not in {"lookup", "aggregation", "comparison", "trend", "general"}:
+        if intent_type not in {"lookup", "aggregation", "comparison", "trend", "general", "unsafe"}:
             intent_type = "general"
         entities = list(data.get("extracted_entities", []))
         search_query = str(data.get("search_query", "")).strip()

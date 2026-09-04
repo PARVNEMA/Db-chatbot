@@ -15,6 +15,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from app.domain.agent.dependencies import GraphDependencies
+from app.domain.agent.guardrail import detect_unsafe_intent
 from app.domain.agent.prompts import (
     INTENT_CLASSIFICATION_PROMPT,
     parse_intent_classification_response,
@@ -80,7 +81,23 @@ def create_intent_node(
             user_query,
         )
 
-        # 1. Classify intent via LLM
+        # 1. Deterministic pre-classification guardrail check
+        matched_unsafe = detect_unsafe_intent(user_query)
+        if matched_unsafe:
+            logger.warning(
+                "Unsafe intent detected by deterministic guardrail for project %s (matched: '%s'): '%s'",
+                project_id,
+                matched_unsafe,
+                user_query,
+            )
+            return {
+                "intent_type": "unsafe",
+                "extracted_entities": [],
+                "relevant_schema": {},
+                "schema_context": "",
+            }
+
+        # 2. Classify intent via LLM
         messages = INTENT_CLASSIFICATION_PROMPT.format_messages(user_query=user_query)
         try:
             llm_response = await deps.llm.ainvoke(messages)
@@ -98,7 +115,21 @@ def create_intent_node(
         extracted_entities = parsed_intent["extracted_entities"]
         search_query = parsed_intent.get("search_query") or user_query
 
-        # 2. Retrieve schema context strictly via vector similarity search
+        # If LLM classified intent as unsafe, immediately short-circuit without schema search
+        if intent_type == "unsafe":
+            logger.warning(
+                "Unsafe intent classified by LLM for project %s: '%s'",
+                project_id,
+                user_query,
+            )
+            return {
+                "intent_type": "unsafe",
+                "extracted_entities": extracted_entities,
+                "relevant_schema": {},
+                "schema_context": "",
+            }
+
+        # 3. Retrieve schema context strictly via vector similarity search
         relevant_schema: dict[str, Any] = {}
         schema_context: str = ""
 

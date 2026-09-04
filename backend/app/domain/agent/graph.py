@@ -28,6 +28,7 @@ from app.domain.agent.nodes.intent import create_intent_node
 from app.domain.agent.nodes.result_formatter import create_result_formatter_node
 from app.domain.agent.nodes.sql_executor import create_sql_executor_node
 from app.domain.agent.nodes.sql_generator import create_sql_generator_node
+from app.domain.agent.nodes.unsafe_handler import create_unsafe_handler_node
 from app.domain.agent.state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -37,8 +38,11 @@ MAX_RETRIES: int = 3
 
 
 def route_after_intent(state: AgentState) -> str:
-    """Route after intent: direct general conversation to general_chat, or proceed to sql_generator."""
+    """Route after intent: direct unsafe intent to unsafe_handler, general conversation to general_chat, or proceed to sql_generator."""
     intent_type = state.get("intent_type", "general")
+    if intent_type == "unsafe":
+        logger.warning("Routing destructive/guardrail-breaking query to unsafe_handler node.")
+        return "unsafe_handler"
     if intent_type == "general":
         logger.info("Routing general conversation query directly to general_chat node.")
         return "general_chat"
@@ -82,6 +86,7 @@ def build_agent_graph(
 
     # 1. Register nodes
     workflow.add_node("intent", create_intent_node(deps))
+    workflow.add_node("unsafe_handler", create_unsafe_handler_node())
     workflow.add_node("general_chat", create_general_chat_node(deps))
     workflow.add_node("sql_generator", create_sql_generator_node(deps))
     workflow.add_node("sql_executor", create_sql_executor_node(deps))
@@ -96,6 +101,7 @@ def build_agent_graph(
         "intent",
         route_after_intent,
         {
+            "unsafe_handler": "unsafe_handler",
             "general_chat": "general_chat",
             "sql_generator": "sql_generator",
         },
@@ -115,6 +121,7 @@ def build_agent_graph(
     )
 
     # 5. Terminal edges
+    workflow.add_edge("unsafe_handler", END)
     workflow.add_edge("general_chat", END)
     workflow.add_edge("result_formatter", END)
     workflow.add_edge("error_terminal", END)
