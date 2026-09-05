@@ -20,6 +20,7 @@ from app.domain.connections.models import Connection
 from app.domain.connections.services import ConnectionService
 from app.domain.embeddings.services import EmbeddingService
 from app.domain.projects.services import ProjectService
+from app.domain.schema_introspection.services import SchemaIntrospectionService
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class GraphDependencies:
     connection: Connection
     llm: BaseChatModel
     user_id: uuid.UUID
+    schema_service: SchemaIntrospectionService | None = None
 
 
 async def build_graph_dependencies(
@@ -70,6 +72,11 @@ async def build_graph_dependencies(
         db=db,
         connection_service=connection_service,
     )
+    schema_service = SchemaIntrospectionService(
+        db=db,
+        connection_service=connection_service,
+        manager=manager,
+    )
     llm = llm_override or get_llm_client()
 
     return GraphDependencies(
@@ -81,4 +88,5 @@ async def build_graph_dependencies(
         connection=connection,
         llm=llm,
         user_id=user_id,
+        schema_service=schema_service,
     )
