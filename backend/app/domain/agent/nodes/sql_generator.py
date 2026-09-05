@@ -44,13 +44,19 @@ def create_sql_generator_node(
         is_retry = bool(execution_error and retry_count > 0)
 
         if is_retry:
+            history_str = "\n".join(error_history) if error_history else execution_error or "None"
             logger.info(
-                "Self-correction retry #%d for project %s. Error: %s",
+                "--- [Node: sql_generator] INPUT (Self-Correction Retry #%d) ---\n"
+                "  Query: %s\n"
+                "  Dialect: %s\n"
+                "  Failed SQL: %s\n"
+                "  Execution Error: %s",
                 retry_count,
-                state["project_id"],
+                user_query,
+                sql_dialect,
+                failed_sql,
                 execution_error,
             )
-            history_str = "\n".join(error_history) if error_history else execution_error or "None"
             messages = SQL_CORRECTION_PROMPT.format_messages(
                 schema_context=schema_context or "No schema available.",
                 sql_dialect=sql_dialect,
@@ -61,9 +67,13 @@ def create_sql_generator_node(
             )
         else:
             logger.info(
-                "Generating initial SQL for project %s with dialect %s",
-                state["project_id"],
+                "--- [Node: sql_generator] INPUT ---\n"
+                "  Query: %s\n"
+                "  Dialect: %s\n"
+                "  Intent: %s",
+                user_query,
                 sql_dialect,
+                intent_type,
             )
             messages = SQL_GENERATION_PROMPT.format_messages(
                 schema_context=schema_context or "No schema available.",
@@ -80,6 +90,14 @@ def create_sql_generator_node(
         except Exception as exc:
             logger.error("SQL generation LLM call failed: %s", exc)
             clean_sql = ""
+
+        logger.info(
+            "--- [Node: sql_generator] OUTPUT ---\n"
+            "  Dialect: %s\n"
+            "  Generated SQL:\n    %s",
+            sql_dialect,
+            clean_sql or "<EMPTY>",
+        )
 
         return {
             "generated_sql": clean_sql,

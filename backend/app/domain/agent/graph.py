@@ -41,12 +41,14 @@ def route_after_intent(state: AgentState) -> str:
     """Route after intent: direct unsafe intent to unsafe_handler, general conversation to general_chat, or proceed to sql_generator."""
     intent_type = state.get("intent_type", "general")
     if intent_type == "unsafe":
-        logger.warning("Routing destructive/guardrail-breaking query to unsafe_handler node.")
-        return "unsafe_handler"
-    if intent_type == "general":
-        logger.info("Routing general conversation query directly to general_chat node.")
-        return "general_chat"
-    return "sql_generator"
+        next_node = "unsafe_handler"
+    elif intent_type == "general":
+        next_node = "general_chat"
+    else:
+        next_node = "sql_generator"
+
+    logger.info("--- [Graph Router] intent -> %s (intent_type=%s) ---", next_node, intent_type)
+    return next_node
 
 
 def route_after_execution(state: AgentState) -> str:
@@ -55,17 +57,23 @@ def route_after_execution(state: AgentState) -> str:
     retry_count = state.get("retry_count", 0)
 
     if error is None:
+        logger.info("--- [Graph Router] sql_executor -> result_formatter (execution successful) ---")
         return "result_formatter"
 
     if retry_count < MAX_RETRIES:
         logger.info(
-            "Routing to sql_generator for self-correction attempt %d/%d",
-            retry_count + 1,
+            "--- [Graph Router] sql_executor -> sql_generator (Self-correction retry %d/%d, error: %s) ---",
+            retry_count,
             MAX_RETRIES,
+            error,
         )
         return "sql_generator"
 
-    logger.warning("Max retries (%d) reached. Routing to error_terminal.", MAX_RETRIES)
+    logger.warning(
+        "--- [Graph Router] sql_executor -> error_terminal (Max retries %d reached, error: %s) ---",
+        MAX_RETRIES,
+        error,
+    )
     return "error_terminal"
 
 

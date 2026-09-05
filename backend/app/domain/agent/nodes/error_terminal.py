@@ -21,9 +21,10 @@ async def error_terminal_node(state: AgentState) -> dict[str, Any]:
     retry_count = state.get("retry_count", 0)
 
     logger.warning(
-        "Self-correction exhausted after %d retries for project %s. Last error: %s",
+        "--- [Node: error_terminal] INPUT ---\n"
+        "  Retries: %d\n"
+        "  Last Error: %s",
         retry_count,
-        state["project_id"],
         last_error,
     )
 
@@ -31,6 +32,12 @@ async def error_terminal_node(state: AgentState) -> dict[str, Any]:
         f"I was unable to successfully execute a query to answer your question after {retry_count} attempts. "
         f"The database reported the following issue: {last_error}. "
         "Please try rephrasing your question or checking if the required tables and columns exist in your schema."
+    )
+
+    logger.warning(
+        "--- [Node: error_terminal] OUTPUT ---\n"
+        "  Summary: %s",
+        summary,
     )
 
     return {

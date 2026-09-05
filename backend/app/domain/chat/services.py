@@ -294,6 +294,19 @@ class ChatService:
         # 6. Stream graph execution step-by-step
         final_state: dict[str, Any] = dict(initial_state)
 
+        logger.info(
+            "==================== LANGGRAPH EXECUTION START ====================\n"
+            "  Session ID: %s\n"
+            "  Project ID: %s\n"
+            "  User Query: %s\n"
+            "  Dialect: %s\n"
+            "==================================================================",
+            session_id,
+            project_id,
+            content,
+            deps.connection.dialect,
+        )
+
         try:
             async for update in graph.astream(initial_state, stream_mode="updates"):
                 for node_name, node_output in update.items():
@@ -312,6 +325,21 @@ class ChatService:
 
         latency_ms = int((time.perf_counter() - start_time) * 1000)
         execution_status = "success" if final_state.get("execution_error") is None else "failed"
+
+        logger.info(
+            "==================== LANGGRAPH EXECUTION END ====================\n"
+            "  Status: %s\n"
+            "  Latency: %dms\n"
+            "  Generated SQL:\n    %s\n"
+            "  Rows Returned: %d\n"
+            "  Final Summary:\n    %s\n"
+            "==================================================================",
+            execution_status.upper(),
+            latency_ms,
+            final_state.get("generated_sql") or "<NONE>",
+            len(final_state.get("execution_result", [])),
+            final_state.get("nl_summary") or "<NONE>",
+        )
 
         # 7. Persist assistant message and query run record
         query_run = await self._query_run_repo.create_query_run(

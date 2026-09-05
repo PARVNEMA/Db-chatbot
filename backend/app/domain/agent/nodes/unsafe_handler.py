@@ -34,9 +34,13 @@ def create_unsafe_handler_node() -> Callable[[AgentState], Coroutine[Any, Any, d
         """Return a firm refusal for unsafe/destructive intent."""
         user_query = state.get("user_query", "")
         logger.warning(
-            "Unsafe handler triggered for project %s. Refusing query: '%s'",
-            state.get("project_id"),
+            "--- [Node: unsafe_handler] INPUT ---\n"
+            "  Query: %s",
             user_query,
+        )
+        logger.warning(
+            "--- [Node: unsafe_handler] OUTPUT ---\n"
+            "  Action: Blocked destructive query",
         )
         return {
             "nl_summary": UNSAFE_REFUSAL_MESSAGE,

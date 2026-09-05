@@ -116,11 +116,15 @@ export default function ChatLandingPage({
         </div>
 
         <div className="space-y-2 max-w-md">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-mono mb-1">
+            <Sparkles className="h-3 w-3" />
+            <span>Engine: Groq / openai/gpt-oss-20b</span>
+          </div>
           <h2 className="text-2xl font-bold tracking-tight text-white sm:text-3xl">
             Natural Language Database Chat
           </h2>
           <p className="text-xs sm:text-sm text-zinc-400 leading-relaxed">
-            Ask conversational questions about your schema. LangGraph Agent classifies intent, retrieves vector context, generates safe dialect SQL, and streams answers in real time.
+            Ask conversational questions about your schema. Powered by LangGraph agentic SQL synthesis, vector schema linking, and low-latency Groq inference.
           </p>
         </div>
 
@@ -150,7 +154,7 @@ export default function ChatLandingPage({
               <Sparkles className="h-3 w-3" /> Dialect Precision
             </div>
             <p className="text-[11px] text-zinc-400 font-sans">
-              Tailored for {connection?.dialect.toUpperCase() || "SQL"} syntax without hallucination.
+              Tailored for {connection?.dialect.toUpperCase() || "SQL"} syntax with entity relationship JOINs.
             </p>
           </div>
 
@@ -159,16 +163,16 @@ export default function ChatLandingPage({
               <Database className="h-3 w-3" /> 3-Layer Guardrails
             </div>
             <p className="text-[11px] text-zinc-400 font-sans">
-              Read-only verification & execution timeout protection.
+              Read-only verification, statement limits, & timeout protection.
             </p>
           </div>
 
           <div className="p-3.5 rounded-xl bg-zinc-900/50 border border-zinc-800/80 space-y-1">
             <div className="text-xs font-semibold text-indigo-400 font-mono flex items-center gap-1.5">
-              <MessageSquare className="h-3 w-3" /> Multi-Turn Memory
+              <MessageSquare className="h-3 w-3" /> Event Stream Auditing
             </div>
             <p className="text-[11px] text-zinc-400 font-sans">
-              Ask follow-up questions in the same session seamlessly.
+              Inspect step-by-step pipeline events and execution telemetry.
             </p>
           </div>
         </div>

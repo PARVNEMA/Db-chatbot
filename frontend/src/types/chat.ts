@@ -22,8 +22,11 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   token_count: number | null;
-  metadata: Record<string, unknown> | null;
+  metadata?: Record<string, unknown> | null;
+  metadata_json?: Record<string, unknown> | null;
   query_run_id: string | null;
+  selected_query_run?: QueryRun | null;
+  stream_events?: ChatSSEEvent[];
   created_at: string;
 }
 
@@ -51,20 +54,36 @@ export interface QueryRun {
 
 export interface ChatSSEEvent {
   event:
+    | "message_received"
     | "intent_classified"
     | "sql_generated"
     | "sql_executed"
     | "sql_error"
+    | "summary_ready"
     | "result_formatted"
     | "final_result"
-    | "error";
+    | "error"
+    | "done"
+    | string;
+  message_id?: string;
+  assistant_message_id?: string;
+  query_run_id?: string;
+  role?: string;
+  content?: string;
   intent_type?: string;
   extracted_entities?: string[];
   generated_sql?: string;
+  sql_dialect?: string;
   execution_result?: Record<string, unknown>[];
+  row_count?: number;
   result_row_count?: number;
+  sample_rows?: Record<string, unknown>[];
   nl_summary?: string;
+  error?: string;
   error_message?: string;
+  message_text?: string;
   retry_count?: number;
+  latency_ms?: number;
+  status?: string;
   message?: ChatMessage;
 }

@@ -137,7 +137,11 @@ async def test_full_graph_general_conversation_flow() -> None:
     assert final_state["intent_type"] == "general"
     assert final_state["generated_sql"] == ""
     assert final_state["execution_result"] == []
-    assert "Hello! I am your AI database assistant" in final_state["nl_summary"]
+    assert (
+        final_state["nl_summary"]
+        == "I can help with database-related questions. Please ask about querying or analyzing your data."
+    )
+    assert mock_llm.ainvoke.await_count == 1
 
 
 @pytest.mark.asyncio

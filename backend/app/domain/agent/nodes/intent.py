@@ -29,7 +29,13 @@ logger = logging.getLogger(__name__)
 def format_schema_context_from_results(
     search_results: list[SchemaSearchResult],
 ) -> tuple[dict[str, Any], str]:
-    """Format vector search schema results into structured dict and prompt string."""
+    """Format vector search schema results into structured dict and prompt string.
+
+    The output string includes:
+    - A per-table column listing with PK/FK annotations.
+    - A dedicated "Relationships" section summarising all FK join paths so the
+      LLM can construct correct JOINs without guessing.
+    """
     if not search_results:
         return {}, ""
 
@@ -47,6 +53,8 @@ def format_schema_context_from_results(
         tables_map.setdefault(res.table_name, []).append(col_info)
 
     schema_lines: list[str] = []
+    join_hints: list[str] = []
+
     for table_name, cols in sorted(tables_map.items()):
         schema_lines.append(f"Table: {table_name}")
         schema_lines.append("Columns:")
@@ -56,10 +64,22 @@ def format_schema_context_from_results(
                 flags.append("PRIMARY KEY")
             if col["is_foreign_key"] and col["fk_target_table"]:
                 target_col = col["fk_target_column"] or "id"
-                flags.append(f"REFERENCES {col['fk_target_table']}.{target_col}")
+                fk_ref = f"REFERENCES {col['fk_target_table']}.{target_col}"
+                flags.append(fk_ref)
+                # Collect join hint: "table.col -> fk_target_table.target_col"
+                join_hints.append(
+                    f"  {table_name}.{col['name']} -> {col['fk_target_table']}.{target_col}"
+                    f"  (JOIN {col['fk_target_table']} ON {table_name}.{col['name']} = {col['fk_target_table']}.{target_col})"
+                )
 
             flag_str = f" [{' | '.join(flags)}]" if flags else ""
             schema_lines.append(f"  - {col['name']} ({col['type']}){flag_str}")
+        schema_lines.append("")
+
+    # Append a clear Relationships block if any FK links were found
+    if join_hints:
+        schema_lines.append("Relationships (use these JOIN paths to fetch human-readable fields):")
+        schema_lines.extend(join_hints)
         schema_lines.append("")
 
     return tables_map, "\n".join(schema_lines).strip()
@@ -76,19 +96,20 @@ def create_intent_node(
         project_id = state["project_id"]
 
         logger.info(
-            "Running intent classification for project %s query: '%s'",
-            project_id,
+            "--- [Node: intent] INPUT ---\n"
+            "  Query: %s\n"
+            "  Project: %s",
             user_query,
+            project_id,
         )
 
         # 1. Deterministic pre-classification guardrail check
         matched_unsafe = detect_unsafe_intent(user_query)
         if matched_unsafe:
             logger.warning(
-                "Unsafe intent detected by deterministic guardrail for project %s (matched: '%s'): '%s'",
-                project_id,
+                "--- [Node: intent] OUTPUT (Guardrail Blocked) ---\n"
+                "  Intent: unsafe (pattern: '%s')",
                 matched_unsafe,
-                user_query,
             )
             return {
                 "intent_type": "unsafe",
@@ -118,9 +139,10 @@ def create_intent_node(
         # If LLM classified intent as unsafe, immediately short-circuit without schema search
         if intent_type == "unsafe":
             logger.warning(
-                "Unsafe intent classified by LLM for project %s: '%s'",
-                project_id,
-                user_query,
+                "--- [Node: intent] OUTPUT (LLM Blocked) ---\n"
+                "  Intent: unsafe\n"
+                "  Entities: %s",
+                extracted_entities,
             )
             return {
                 "intent_type": "unsafe",
@@ -143,6 +165,19 @@ def create_intent_node(
                 relevant_schema, schema_context = format_schema_context_from_results(search_results)
         except Exception as search_err:
             logger.warning("Vector schema search encountered error: %s", search_err)
+
+        retrieved_tables = list(relevant_schema.keys())
+        logger.info(
+            "--- [Node: intent] OUTPUT ---\n"
+            "  Intent: %s\n"
+            "  Entities: %s\n"
+            "  Search Query: %s\n"
+            "  Retrieved Tables: %s",
+            intent_type,
+            extracted_entities,
+            search_query,
+            retrieved_tables or "None",
+        )
 
         return {
             "intent_type": intent_type,

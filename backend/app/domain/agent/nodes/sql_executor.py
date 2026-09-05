@@ -34,9 +34,21 @@ def create_sql_executor_node(
         retry_count = state.get("retry_count", 0)
         error_history = list(state.get("error_history", []))
 
+        logger.info(
+            "--- [Node: sql_executor] INPUT ---\n"
+            "  Dialect: %s\n"
+            "  SQL:\n    %s",
+            sql_dialect,
+            sql or "<EMPTY>",
+        )
+
         if not sql:
             err_msg = "No SQL query was generated."
-            logger.warning("SQL execution skipped: %s", err_msg)
+            logger.warning(
+                "--- [Node: sql_executor] OUTPUT (Failed) ---\n"
+                "  Error: %s",
+                err_msg,
+            )
             return {
                 "execution_result": [],
                 "execution_error": err_msg,
@@ -49,7 +61,11 @@ def create_sql_executor_node(
             validate_read_only(sql, dialect=sql_dialect)
         except ValueError as val_err:
             err_msg = str(val_err)
-            logger.warning("SQL failed read-only validation: %s", err_msg)
+            logger.warning(
+                "--- [Node: sql_executor] OUTPUT (Validation Error) ---\n"
+                "  Error: %s",
+                err_msg,
+            )
             return {
                 "execution_result": [],
                 "execution_error": err_msg,
@@ -71,10 +87,13 @@ def create_sql_executor_node(
                     sql=sql,
                     timeout_seconds=QUERY_TIMEOUT_SECONDS,
                 )
+                sample_preview = rows[:3] if rows else []
                 logger.info(
-                    "SQL executed successfully for project %s. Rows returned: %d",
-                    state["project_id"],
+                    "--- [Node: sql_executor] OUTPUT (Success) ---\n"
+                    "  Rows Returned: %d\n"
+                    "  Sample: %s",
                     len(rows),
+                    sample_preview,
                 )
                 return {
                     "execution_result": rows,
@@ -83,8 +102,8 @@ def create_sql_executor_node(
         except Exception as exc:
             err_str = str(exc)
             logger.warning(
-                "SQL execution failed on target database for project %s: %s",
-                state["project_id"],
+                "--- [Node: sql_executor] OUTPUT (Execution Error) ---\n"
+                "  Error: %s",
                 err_str,
             )
             return {

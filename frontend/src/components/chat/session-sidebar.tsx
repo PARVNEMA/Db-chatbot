@@ -9,6 +9,7 @@ import {
   Trash2,
   Edit2,
   Search,
+  Sparkles,
 } from "lucide-react";
 import type { ChatSession } from "@/types/chat";
 import { chatApi } from "@/lib/api/chat";
@@ -256,6 +257,22 @@ export function SessionSidebar({
               );
             })
           )}
+        </div>
+
+        {/* Engine Footer Indicator */}
+        <div className="p-3 border-t border-zinc-800/80 bg-zinc-950/90 text-xs">
+          <div className="flex items-center justify-between text-[11px] text-zinc-400">
+            <span className="flex items-center gap-1.5 font-medium text-zinc-300">
+              <Sparkles className="h-3 w-3 text-blue-400" />
+              <span>Groq AI Engine</span>
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 text-[10px] font-mono border border-blue-500/20">
+              gpt-oss-20b
+            </span>
+          </div>
+          <div className="text-[10px] text-zinc-400 mt-0.5 font-mono">
+            LangGraph Agentic SQL
+          </div>
         </div>
       </div>
 

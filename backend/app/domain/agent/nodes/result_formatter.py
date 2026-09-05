@@ -37,8 +37,12 @@ def create_result_formatter_node(
         row_count = len(execution_result)
 
         logger.info(
-            "Formatting results for project %s. Total rows: %d",
-            state["project_id"],
+            "--- [Node: result_formatter] INPUT ---\n"
+            "  Query: %s\n"
+            "  Generated SQL: %s\n"
+            "  Total Rows: %d",
+            user_query,
+            generated_sql,
             row_count,
         )
 
@@ -61,6 +65,12 @@ def create_result_formatter_node(
                 summary = "The query completed successfully, but no matching records were found."
             else:
                 summary = f"The query returned {row_count} record(s)."
+
+        logger.info(
+            "--- [Node: result_formatter] OUTPUT ---\n"
+            "  Summary:\n    %s",
+            summary,
+        )
 
         return {
             "nl_summary": summary,

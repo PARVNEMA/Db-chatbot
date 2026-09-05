@@ -85,8 +85,31 @@ export default function ChatSessionPage({
     // Start SSE Stream with callbacks
     startStream(content, {
       onComplete: () => {
-        // Refresh full verified messages from database
-        void fetchMessages();
+        // Refresh full verified messages from database and preserve stream events for latest assistant message
+        const capturedEvents = [...streamState.events];
+        chatApi
+          .listMessages(projectId, sessionId, { limit: 100 })
+          .then((res) => {
+            if (res.success && res.data && res.data.items) {
+              const updatedItems = [...res.data.items];
+              // Find the latest assistant message and assign stream_events if captured
+              if (capturedEvents.length > 0) {
+                for (let i = updatedItems.length - 1; i >= 0; i--) {
+                  if (updatedItems[i].role === "assistant") {
+                    updatedItems[i] = {
+                      ...updatedItems[i],
+                      stream_events: capturedEvents,
+                    };
+                    break;
+                  }
+                }
+              }
+              setMessages(updatedItems);
+            }
+          })
+          .catch(() => {
+            void fetchMessages();
+          });
       },
       onError: () => {
         void fetchMessages();

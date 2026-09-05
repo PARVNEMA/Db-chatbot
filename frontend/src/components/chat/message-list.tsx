@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
-import { Bot } from "lucide-react";
+import React, { useEffect, useRef, useState } from "react";
+import { Bot, Activity } from "lucide-react";
 import type { ChatMessage } from "@/types/chat";
 import type { StreamState } from "@/hooks/use-sse";
 import { MessageBubble } from "./message-bubble";
@@ -9,6 +9,7 @@ import { SSEStatusIndicator } from "./sse-status-indicator";
 import { SqlViewer } from "./sql-viewer";
 import { QueryResultTable } from "./query-result-table";
 import { MarkdownRenderer } from "./markdown-renderer";
+import { EventStreamModal } from "./event-stream-modal";
 
 interface MessageListProps {
   messages: ChatMessage[];
@@ -22,6 +23,7 @@ export function MessageList({
   dialect = "postgresql",
 }: MessageListProps): React.JSX.Element {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [showLiveModal, setShowLiveModal] = useState(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -45,8 +47,27 @@ export function MessageList({
     );
   }
 
+  // Construct in-flight synthetic ChatMessage for the modal if user inspects while streaming
+  const inFlightMessage: ChatMessage = {
+    id: "in-flight-stream",
+    session_id: "",
+    project_id: "",
+    role: "assistant",
+    content: streamState.nlSummary || "Processing query via LangGraph...",
+    token_count: null,
+    metadata: {
+      sql: streamState.generatedSql,
+      dialect: dialect,
+      status: streamState.stepStatus === "error" ? "failed" : "running",
+      row_count: streamState.resultRowCount,
+      latency_ms: null,
+    },
+    query_run_id: null,
+    created_at: new Date().toISOString(),
+  };
+
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 no-scrollbar" >
+    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 no-scrollbar">
       {/* Existing History Messages */}
       {messages.map((msg) => (
         <MessageBubble key={msg.id} message={msg} dialect={dialect} />
@@ -83,8 +104,39 @@ export function MessageList({
                 <MarkdownRenderer content={streamState.nlSummary} />
               </div>
             )}
+
+            {/* Live stream event inspector button */}
+            <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 pl-1 pt-1">
+              <span className="flex items-center gap-1.5 text-blue-400">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                </span>
+                Streaming active...
+              </span>
+
+              <button
+                onClick={() => setShowLiveModal(true)}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-zinc-400 hover:text-blue-400 hover:bg-zinc-800/70 border border-zinc-800 transition-all font-sans text-xs"
+                title="View live event stream log"
+              >
+                <Activity className="h-3 w-3 text-blue-400" />
+                <span>Live Events ({streamState.events.length})</span>
+              </button>
+            </div>
           </div>
         </div>
+      )}
+
+      {/* In-flight Event Stream Modal */}
+      {showLiveModal && (
+        <EventStreamModal
+          isOpen={showLiveModal}
+          onClose={() => setShowLiveModal(false)}
+          message={inFlightMessage}
+          events={streamState.events}
+          dialect={dialect}
+        />
       )}
 
       <div ref={bottomRef} />

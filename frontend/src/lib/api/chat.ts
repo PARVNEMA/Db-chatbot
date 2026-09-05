@@ -102,13 +102,22 @@ export function streamChatMessage(
         const lines = buffer.split("\n");
         buffer = lines.pop() ?? "";
 
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
+        let currentEventName = "message";
+
+        for (const rawLine of lines) {
+          const line = rawLine.trim();
+          if (line.startsWith("event: ")) {
+            currentEventName = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
             try {
-              const parsed: ChatSSEEvent = JSON.parse(line.slice(6));
-              callbacks.onEvent(parsed);
+              const dataPayload = JSON.parse(line.slice(6));
+              const eventObj: ChatSSEEvent = {
+                event: dataPayload.event || currentEventName,
+                ...dataPayload,
+              };
+              callbacks.onEvent(eventObj);
             } catch {
-              // ignore parse errors for partial chunks
+              // ignore parse errors for non-JSON or partial chunks
             }
           }
         }
