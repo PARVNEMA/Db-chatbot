@@ -107,3 +107,64 @@ class SSEEventData(BaseModel):
 
     event: str
     data: dict[str, Any]
+
+
+class PendingMutationResponse(BaseModel):
+    """Response representation of a staged pending mutation."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    session_id: uuid.UUID
+    connection_id: uuid.UUID
+    proposer_id: uuid.UUID
+    approver_id: uuid.UUID | None = None
+    status: str
+    change_set_hash: str
+    preview_row_counts: dict[str, Any] | None = None
+    total_rows_affected: int | None = None
+    idempotency_key: str | None = None
+    expires_at: datetime
+    approved_at: datetime | None = None
+    executed_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class MutationAuditLogResponse(BaseModel):
+    """Response representation of an append-only audit log entry."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    connection_id: uuid.UUID
+    mutation_id: uuid.UUID | None = None
+    initiator_id: uuid.UUID
+    approver_id: uuid.UUID | None = None
+    operation: str
+    tables_affected: list[dict[str, Any]] | None = None
+    total_rows_affected: int
+    change_set_hash: str
+    status: str
+    error_details: str | None = None
+    latency_ms: int | None = None
+    created_at: datetime
+
+
+class MutationApproveRequest(BaseModel):
+    """Payload for approving a pending mutation."""
+
+    idempotency_key: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="Client-generated key to prevent duplicate mutation executions.",
+    )
+
+
+class MutationRejectRequest(BaseModel):
+    """Payload for rejecting a pending mutation."""
+
+    reason: str | None = Field(default=None, max_length=500, description="Optional rejection explanation")

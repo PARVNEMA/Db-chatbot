@@ -29,6 +29,31 @@ class ConnectionCreate(BaseModel):
     )
 
 
+class WritePolicyUpdate(BaseModel):
+    writes_enabled: bool | None = Field(default=None, description="Toggle write capability for the connection")
+    max_insert_rows_per_table: int | None = Field(
+        default=None, ge=1, le=50, description="Max rows per INSERT per table"
+    )
+    max_patch_rows_per_table: int | None = Field(
+        default=None, ge=1, le=20, description="Max rows per PATCH per table"
+    )
+    max_total_rows_per_changeset: int | None = Field(
+        default=None, ge=1, le=100, description="Max total rows affected per change-set"
+    )
+    max_tables_per_changeset: int | None = Field(
+        default=None, ge=1, le=5, description="Max distinct tables modified per change-set"
+    )
+    approval_timeout_minutes: int | None = Field(
+        default=None, ge=1, le=120, description="Approval expiry timeout in minutes"
+    )
+    undo_window_minutes: int | None = Field(
+        default=None, ge=0, le=1440, description="Window in minutes during which soft-undo is available"
+    )
+    blocked_tables: list[str] | None = Field(
+        default=None, description="Denylist of tables that cannot be modified"
+    )
+
+
 class ConnectionUpdate(BaseModel):
     name: str | None = Field(
         default=None, min_length=1, max_length=255, description="Connection display name"
@@ -39,6 +64,14 @@ class ConnectionUpdate(BaseModel):
     connection_string: str | None = Field(
         default=None, min_length=1, description="New plaintext connection string"
     )
+    writes_enabled: bool | None = None
+    max_insert_rows_per_table: int | None = Field(default=None, ge=1, le=50)
+    max_patch_rows_per_table: int | None = Field(default=None, ge=1, le=20)
+    max_total_rows_per_changeset: int | None = Field(default=None, ge=1, le=100)
+    max_tables_per_changeset: int | None = Field(default=None, ge=1, le=5)
+    approval_timeout_minutes: int | None = Field(default=None, ge=1, le=120)
+    undo_window_minutes: int | None = Field(default=None, ge=0, le=1440)
+    blocked_tables: list[str] | None = None
 
 
 class ConnectionResponse(BaseModel):
@@ -48,6 +81,14 @@ class ConnectionResponse(BaseModel):
     project_id: uuid.UUID
     name: str
     dialect: str
+    writes_enabled: bool = False
+    max_insert_rows_per_table: int = 5
+    max_patch_rows_per_table: int = 1
+    max_total_rows_per_changeset: int = 10
+    max_tables_per_changeset: int = 1
+    approval_timeout_minutes: int = 15
+    undo_window_minutes: int = 0
+    blocked_tables: list[str] | None = None
     created_at: datetime
     updated_at: datetime
 

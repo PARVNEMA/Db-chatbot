@@ -19,6 +19,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundException
+from app.core.websocket import WebSocketConnectionManager, websocket_manager
 from app.dependencies.auth import DbSession
 from app.dependencies.pagination import PaginationParams
 from app.domain.agent.dependencies import build_graph_dependencies
@@ -35,6 +36,8 @@ from app.domain.projects.services import ProjectService, get_project_service
 
 logger = logging.getLogger(__name__)
 
+MAX_HISTORY_MESSAGES = 6
+
 
 def _format_sse(event: str, data: dict[str, Any]) -> str:
     """Format an SSE message block with event name and JSON payload."""
@@ -44,7 +47,7 @@ def _format_sse(event: str, data: dict[str, Any]) -> str:
 def _build_history_messages(recent_messages: list[ChatMessage]) -> list[BaseMessage]:
     """Convert stored chat messages to LangChain message models."""
     history: list[BaseMessage] = []
-    for m in recent_messages[:-1]:  # Exclude current user message
+    for m in recent_messages[:-1][-MAX_HISTORY_MESSAGES:]:  # Exclude current user message
         if m.role == "user":
             history.append(HumanMessage(content=m.content))
         elif m.role == "assistant":
@@ -52,10 +55,10 @@ def _build_history_messages(recent_messages: list[ChatMessage]) -> list[BaseMess
     return history
 
 
-def _format_node_event(node_name: str, node_output: dict[str, Any]) -> str | None:
-    """Format SSE event string for a specific node update in the graph."""
+def _extract_node_event(node_name: str, node_output: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    """Extract (event_type, payload_dict) for a specific node update in the graph."""
     if node_name == "intent":
-        return _format_sse(
+        return (
             "intent_classified",
             {
                 "intent_type": node_output.get("intent_type"),
@@ -63,7 +66,7 @@ def _format_node_event(node_name: str, node_output: dict[str, Any]) -> str | Non
             },
         )
     if node_name == "sql_generator":
-        return _format_sse(
+        return (
             "sql_generated",
             {
                 "generated_sql": node_output.get("generated_sql"),
@@ -73,7 +76,7 @@ def _format_node_event(node_name: str, node_output: dict[str, Any]) -> str | Non
     if node_name == "sql_executor":
         err = node_output.get("execution_error")
         if err:
-            return _format_sse(
+            return (
                 "sql_error",
                 {
                     "error": err,
@@ -81,7 +84,7 @@ def _format_node_event(node_name: str, node_output: dict[str, Any]) -> str | Non
                 },
             )
         rows = node_output.get("execution_result", [])
-        return _format_sse(
+        return (
             "sql_executed",
             {
                 "row_count": len(rows),
@@ -89,12 +92,21 @@ def _format_node_event(node_name: str, node_output: dict[str, Any]) -> str | Non
             },
         )
     if node_name in {"result_formatter", "error_terminal", "general_chat", "unsafe_handler"}:
-        return _format_sse(
+        return (
             "summary_ready",
             {
                 "nl_summary": node_output.get("nl_summary"),
             },
         )
+    return None
+
+
+def _format_node_event(node_name: str, node_output: dict[str, Any]) -> str | None:
+    """Format SSE event string for a specific node update in the graph."""
+    extracted = _extract_node_event(node_name, node_output)
+    if extracted is not None:
+        event_name, data = extracted
+        return _format_sse(event_name, data)
     return None
 
 
@@ -106,10 +118,12 @@ class ChatService:
         db: AsyncSession,
         project_service: ProjectService,
         connection_service: ConnectionService,
+        ws_manager: WebSocketConnectionManager = websocket_manager,
     ) -> None:
         self._db = db
         self._project_service = project_service
         self._connection_service = connection_service
+        self._ws_manager = ws_manager
         self._session_repo = ChatSessionRepository(db)
         self._message_repo = ChatMessageRepository(db)
         self._query_run_repo = QueryRunRepository(db)
@@ -265,7 +279,9 @@ class ChatService:
         recent_messages = await self._message_repo.get_recent_messages(
             session_id=session_id,
             project_id=project_id,
-            limit=10,
+            # The current message is included in the query result, so fetch one
+            # extra row to retain at most MAX_HISTORY_MESSAGES previous messages.
+            limit=MAX_HISTORY_MESSAGES + 1,
         )
         history = _build_history_messages(recent_messages)
 
@@ -386,6 +402,187 @@ class ChatService:
         )
 
         yield _format_sse("done", {})
+
+    async def send_message_websocket(
+        self,
+        project_id: uuid.UUID,
+        session_id: uuid.UUID,
+        user_id: uuid.UUID,
+        content: str,
+    ) -> None:
+        """Process a user question through the LangGraph agent pipeline and dispatch events via WebSocket."""
+        start_time = time.perf_counter()
+
+        # 1. Validate session and access
+        session = await self.get_session(
+            project_id=project_id,
+            session_id=session_id,
+            user_id=user_id,
+        )
+
+        # 2. Persist user message
+        user_msg = await self._message_repo.create_message(
+            session_id=session_id,
+            project_id=project_id,
+            role="user",
+            content=content,
+        )
+
+        await self._ws_manager.send_event(
+            session_id=session_id,
+            event_type="message_received",
+            data={
+                "message_id": str(user_msg.id),
+                "role": "user",
+                "content": content,
+            },
+        )
+
+        # 3. Build graph dependencies
+        try:
+            deps = await build_graph_dependencies(
+                db=self._db,
+                project_id=project_id,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            logger.error("Failed to build graph dependencies: %s", exc)
+            await self._ws_manager.send_event(
+                session_id=session_id,
+                event_type="error",
+                data={"message": f"Initialization failed: {exc}"},
+            )
+            await self._ws_manager.send_event(
+                session_id=session_id,
+                event_type="done",
+                data={},
+            )
+            return
+
+        # 4. Fetch recent messages for multi-turn context
+        recent_messages = await self._message_repo.get_recent_messages(
+            session_id=session_id,
+            project_id=project_id,
+            limit=MAX_HISTORY_MESSAGES + 1,
+        )
+        history = _build_history_messages(recent_messages)
+
+        # 5. Compile LangGraph agent workflow
+        graph = build_agent_graph(deps=deps)
+
+        initial_state: AgentState = {
+            "project_id": project_id,
+            "session_id": session_id,
+            "connection_id": session.connection_id,
+            "user_query": content,
+            "intent_type": "general",
+            "extracted_entities": [],
+            "relevant_schema": {},
+            "schema_context": "",
+            "generated_sql": "",
+            "sql_dialect": deps.connection.dialect,
+            "execution_result": [],
+            "execution_error": None,
+            "retry_count": 0,
+            "error_history": [],
+            "nl_summary": "",
+            "messages": history,
+        }
+
+        # 6. Stream graph execution step-by-step
+        final_state: dict[str, Any] = dict(initial_state)
+
+        logger.info(
+            "==================== LANGGRAPH WS EXECUTION START ====================\n"
+            "  Session ID: %s\n"
+            "  Project ID: %s\n"
+            "  User Query: %s\n"
+            "  Dialect: %s\n"
+            "=====================================================================",
+            session_id,
+            project_id,
+            content,
+            deps.connection.dialect,
+        )
+
+        try:
+            async for update in graph.astream(initial_state, stream_mode="updates"):
+                for node_name, node_output in update.items():
+                    if not isinstance(node_output, dict):
+                        continue
+                    final_state.update(node_output)
+                    extracted = _extract_node_event(node_name, node_output)
+                    if extracted is not None:
+                        event_type, payload = extracted
+                        await self._ws_manager.send_event(
+                            session_id=session_id,
+                            event_type=event_type,
+                            data=payload,
+                        )
+
+        except Exception as graph_err:
+            logger.exception("LangGraph WS execution error: %s", graph_err)
+            final_state["execution_error"] = str(graph_err)
+            final_state["nl_summary"] = f"An unexpected error occurred during execution: {graph_err}"
+            await self._ws_manager.send_event(
+                session_id=session_id,
+                event_type="error",
+                data={"message": str(graph_err)},
+            )
+
+        latency_ms = int((time.perf_counter() - start_time) * 1000)
+        execution_status = "success" if final_state.get("execution_error") is None else "failed"
+
+        # 7. Persist assistant message and query run record
+        query_run = await self._query_run_repo.create_query_run(
+            chat_message_id=user_msg.id,
+            project_id=project_id,
+            connection_id=session.connection_id,
+            nl_prompt=content,
+            generated_sql=final_state.get("generated_sql"),
+            status=execution_status,
+            error_message=final_state.get("execution_error"),
+            result_summary=final_state.get("nl_summary"),
+            result_row_count=len(final_state.get("execution_result", [])),
+            latency_ms=latency_ms,
+            attempt_number=max(1, final_state.get("retry_count", 0)),
+        )
+
+        assistant_msg = await self._message_repo.create_message(
+            session_id=session_id,
+            project_id=project_id,
+            role="assistant",
+            content=final_state.get("nl_summary", "Query completed."),
+            query_run_id=query_run.id,
+            metadata_json={
+                "sql": final_state.get("generated_sql"),
+                "dialect": final_state.get("sql_dialect"),
+                "status": execution_status,
+                "latency_ms": latency_ms,
+                "row_count": len(final_state.get("execution_result", [])),
+            },
+        )
+
+        # 8. Emit final result
+        await self._ws_manager.send_event(
+            session_id=session_id,
+            event_type="final_result",
+            data={
+                "assistant_message_id": str(assistant_msg.id),
+                "query_run_id": str(query_run.id),
+                "content": assistant_msg.content,
+                "generated_sql": final_state.get("generated_sql"),
+                "execution_result": final_state.get("execution_result", []),
+                "status": execution_status,
+                "latency_ms": latency_ms,
+            },
+        )
+
+        await self._ws_manager.send_event(
+            session_id=session_id,
+            event_type="done",
+            data={},
+        )
 
 
 def get_chat_service(

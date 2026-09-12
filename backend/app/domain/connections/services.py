@@ -118,6 +118,14 @@ class ConnectionService:
             name=data.name,
             dialect=data.dialect,
             encrypted_connection_string=encrypted_conn_str,
+            writes_enabled=data.writes_enabled,
+            max_insert_rows_per_table=data.max_insert_rows_per_table,
+            max_patch_rows_per_table=data.max_patch_rows_per_table,
+            max_total_rows_per_changeset=data.max_total_rows_per_changeset,
+            max_tables_per_changeset=data.max_tables_per_changeset,
+            approval_timeout_minutes=data.approval_timeout_minutes,
+            undo_window_minutes=data.undo_window_minutes,
+            blocked_tables=data.blocked_tables,
         )
 
     async def delete_connection(self, project_id: uuid.UUID, user_id: uuid.UUID) -> None:

@@ -28,6 +28,8 @@ class ColumnResponse(BaseModel):
     fk_target_table: str | None = None
     fk_target_column: str | None = None
     ordinal_position: int
+    column_default: str | None = None
+    is_read_only: bool = False
     created_at: datetime
 
 
@@ -55,6 +57,8 @@ class TableDetailResponse(BaseModel):
     project_id: uuid.UUID
     schema_name: str | None = None
     table_name: str
+    unique_constraints: list[dict[str, Any]] | None = None
+    check_constraints: list[dict[str, Any]] | None = None
     columns: list[ColumnResponse] = Field(default_factory=list)
     created_at: datetime
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Chat domain — SQLAlchemy ORM models.
 
 Contains:
@@ -9,10 +9,12 @@ Contains:
 
 from __future__ import annotations
 
+from datetime import datetime
 import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -26,6 +28,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, CreatedAtMixin, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.domain.auth.models import User
     from app.domain.connections.models import Connection
     from app.domain.projects.models import Project
 
@@ -166,3 +169,117 @@ class QueryRun(TimestampMixin, Base):
         "QueryRun",
         back_populates="parent_run",
     )
+
+
+class PendingMutation(TimestampMixin, Base):
+    """Represents a staged multi-table database mutation awaiting owner approval."""
+
+    __tablename__ = "pending_mutations"
+    __table_args__ = (
+        Index("ix_pending_mutations_session_created", "session_id", desc("created_at")),
+        Index("ix_pending_mutations_status", "status"),
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chat_sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    proposer_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    approver_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # Status: "COLLECTING_INPUT" | "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "EXPIRED" | "EXECUTING" | "EXECUTED" | "FAILED"
+    status: Mapped[str] = mapped_column(String(30), default="PENDING_APPROVAL", nullable=False)
+
+    # Encrypted JSON of change-set proposal
+    change_set_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    change_set_hash: Mapped[str] = mapped_column(String(64), nullable=False)  # SHA-256
+
+    preview_row_counts: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    total_rows_affected: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    execution_result_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    idempotency_key: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    session: Mapped[ChatSession] = relationship("ChatSession")
+    audit_logs: Mapped[list[MutationAuditLog]] = relationship(
+        "MutationAuditLog", back_populates="mutation", cascade="all, delete-orphan"
+    )
+
+
+class MutationAuditLog(CreatedAtMixin, Base):
+    """Immutable, append-only record of executed or attempted write operations."""
+
+    __tablename__ = "mutation_audit_logs"
+    __table_args__ = (
+        Index("ix_mutation_audit_logs_project_created", "project_id", desc("created_at")),
+    )
+
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("connections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    mutation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pending_mutations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    initiator_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    approver_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # Operation: "insert" | "patch" | "multi_write" | "undo"
+    operation: Mapped[str] = mapped_column(String(30), nullable=False)
+    tables_affected: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
+    total_rows_affected: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    change_set_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    before_snapshot_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_snapshot_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Status: "executed" | "failed" | "undone"
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    error_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    mutation: Mapped[PendingMutation | None] = relationship("PendingMutation", back_populates="audit_logs")

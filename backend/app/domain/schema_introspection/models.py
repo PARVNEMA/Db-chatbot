@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
@@ -94,6 +94,8 @@ class SchemaTable(CreatedAtMixin, Base):
     )
     schema_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     table_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    unique_constraints: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
+    check_constraints: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
     cache: Mapped[SchemaCache] = relationship("SchemaCache", back_populates="tables")
     columns: Mapped[list[SchemaColumn]] = relationship(
@@ -142,6 +144,10 @@ class SchemaColumn(CreatedAtMixin, Base):
     fk_target_table: Mapped[str | None] = mapped_column(String(255), nullable=True)
     fk_target_column: Mapped[str | None] = mapped_column(String(255), nullable=True)
     ordinal_position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    # Safe write metadata
+    column_default: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_read_only: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     table: Mapped[SchemaTable] = relationship("SchemaTable", back_populates="columns")
     embedding: Mapped[SchemaEmbedding | None] = relationship(

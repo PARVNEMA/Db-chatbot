@@ -10,7 +10,10 @@ from langchain_core.messages import AIMessage
 
 from app.domain.agent.dependencies import GraphDependencies
 from app.domain.agent.nodes.error_terminal import error_terminal_node
-from app.domain.agent.nodes.result_formatter import create_result_formatter_node
+from app.domain.agent.nodes.result_formatter import (
+    _serialize_query_results,
+    create_result_formatter_node,
+)
 from app.domain.agent.state import AgentState
 
 
@@ -56,6 +59,20 @@ async def test_result_formatter_node_success() -> None:
     result = await formatter_fn(state)
 
     assert result["nl_summary"] == "There are 2 active users: Alice and Bob."
+
+
+def test_serialize_query_results_uses_toon_for_uniform_rows() -> None:
+    """Uniform result rows should declare fields once instead of repeating JSON keys."""
+    assert _serialize_query_results(
+        [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]
+    ) == "query_results[2]{id,name}:\n  1,Alice\n  2,Bob"
+
+
+def test_serialize_query_results_falls_back_for_nested_rows() -> None:
+    """Nested results should remain lossless when tabular TOON is not a fit."""
+    assert _serialize_query_results([{"id": 1, "meta": {"active": True}}]) == (
+        '[{"id":1,"meta":{"active":true}}]'
+    )
 
 
 @pytest.mark.asyncio

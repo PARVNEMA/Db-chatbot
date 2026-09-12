@@ -8,13 +8,20 @@ strictly enforcing multi-tenant project_id scoping across all queries.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.domain.chat.models import ChatMessage, ChatSession, QueryRun
+from app.domain.chat.models import (
+    ChatMessage,
+    ChatSession,
+    MutationAuditLog,
+    PendingMutation,
+    QueryRun,
+)
 
 
 class ChatSessionRepository:
@@ -228,3 +235,194 @@ class QueryRunRepository:
         await self._db.commit()
         await self._db.refresh(run)
         return run
+
+
+class PendingMutationRepository:
+    """Repository managing PendingMutation persistence, querying, and lifecycle status transitions."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def create_mutation(
+        self,
+        project_id: uuid.UUID,
+        session_id: uuid.UUID,
+        connection_id: uuid.UUID,
+        proposer_id: uuid.UUID,
+        change_set_encrypted: str,
+        change_set_hash: str,
+        expires_at: datetime,
+        preview_row_counts: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+        status: str = "PENDING_APPROVAL",
+    ) -> PendingMutation:
+        """Create and persist a staged mutation proposal."""
+        mutation = PendingMutation(
+            project_id=project_id,
+            session_id=session_id,
+            connection_id=connection_id,
+            proposer_id=proposer_id,
+            change_set_encrypted=change_set_encrypted,
+            change_set_hash=change_set_hash,
+            expires_at=expires_at,
+            preview_row_counts=preview_row_counts,
+            idempotency_key=idempotency_key,
+            status=status,
+        )
+        self._db.add(mutation)
+        await self._db.flush()
+        await self._db.refresh(mutation)
+        return mutation
+
+    async def get_by_id_and_project(
+        self,
+        mutation_id: uuid.UUID,
+        project_id: uuid.UUID,
+    ) -> PendingMutation | None:
+        """Fetch pending mutation by ID enforcing multi-tenant isolation."""
+        stmt = select(PendingMutation).where(
+            PendingMutation.id == mutation_id,
+            PendingMutation.project_id == project_id,
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_by_idempotency_key(
+        self,
+        idempotency_key: str,
+        project_id: uuid.UUID,
+    ) -> PendingMutation | None:
+        """Fetch mutation by unique idempotency key."""
+        stmt = select(PendingMutation).where(
+            PendingMutation.idempotency_key == idempotency_key,
+            PendingMutation.project_id == project_id,
+        )
+        result = await self._db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def update_status(
+        self,
+        mutation: PendingMutation,
+        status: str,
+        approver_id: uuid.UUID | None = None,
+        total_rows_affected: int | None = None,
+        execution_result_encrypted: str | None = None,
+    ) -> PendingMutation:
+        """Update lifecycle status and execution outcomes on a mutation."""
+        now = datetime.now(tz=UTC)
+        mutation.status = status
+        if approver_id is not None:
+            mutation.approver_id = approver_id
+        if status == "APPROVED":
+            mutation.approved_at = now
+        elif status in {"EXECUTED", "FAILED"}:
+            mutation.executed_at = now
+        if total_rows_affected is not None:
+            mutation.total_rows_affected = total_rows_affected
+        if execution_result_encrypted is not None:
+            mutation.execution_result_encrypted = execution_result_encrypted
+
+        await self._db.flush()
+        await self._db.refresh(mutation)
+        return mutation
+
+    async def list_by_session(
+        self,
+        session_id: uuid.UUID,
+        project_id: uuid.UUID,
+        skip: int = 0,
+        limit: int = 20,
+    ) -> tuple[list[PendingMutation], int]:
+        """List pending mutations for a session with total count."""
+        count_stmt = (
+            select(func.count())
+            .select_from(PendingMutation)
+            .where(
+                PendingMutation.session_id == session_id,
+                PendingMutation.project_id == project_id,
+            )
+        )
+        total = (await self._db.execute(count_stmt)).scalar_one()
+
+        stmt = (
+            select(PendingMutation)
+            .where(
+                PendingMutation.session_id == session_id,
+                PendingMutation.project_id == project_id,
+            )
+            .order_by(desc(PendingMutation.created_at))
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all()), total
+
+
+class MutationAuditLogRepository:
+    """Repository managing append-only MutationAuditLog records."""
+
+    def __init__(self, db: AsyncSession) -> None:
+        self._db = db
+
+    async def create_log(
+        self,
+        project_id: uuid.UUID,
+        connection_id: uuid.UUID,
+        initiator_id: uuid.UUID,
+        operation: str,
+        change_set_hash: str,
+        status: str,
+        mutation_id: uuid.UUID | None = None,
+        approver_id: uuid.UUID | None = None,
+        tables_affected: list[dict[str, Any]] | None = None,
+        total_rows_affected: int = 0,
+        before_snapshot_encrypted: str | None = None,
+        after_snapshot_encrypted: str | None = None,
+        error_details: str | None = None,
+        latency_ms: int | None = None,
+    ) -> MutationAuditLog:
+        """Append an immutable audit entry for an executed or attempted write."""
+        log_entry = MutationAuditLog(
+            project_id=project_id,
+            connection_id=connection_id,
+            mutation_id=mutation_id,
+            initiator_id=initiator_id,
+            approver_id=approver_id,
+            operation=operation,
+            tables_affected=tables_affected,
+            total_rows_affected=total_rows_affected,
+            change_set_hash=change_set_hash,
+            before_snapshot_encrypted=before_snapshot_encrypted,
+            after_snapshot_encrypted=after_snapshot_encrypted,
+            status=status,
+            error_details=error_details,
+            latency_ms=latency_ms,
+        )
+        self._db.add(log_entry)
+        await self._db.flush()
+        await self._db.refresh(log_entry)
+        return log_entry
+
+    async def list_by_project(
+        self,
+        project_id: uuid.UUID,
+        skip: int = 0,
+        limit: int = 50,
+    ) -> tuple[list[MutationAuditLog], int]:
+        """List audit entries for a project with total count."""
+        count_stmt = (
+            select(func.count())
+            .select_from(MutationAuditLog)
+            .where(MutationAuditLog.project_id == project_id)
+        )
+        total = (await self._db.execute(count_stmt)).scalar_one()
+
+        stmt = (
+            select(MutationAuditLog)
+            .where(MutationAuditLog.project_id == project_id)
+            .order_by(desc(MutationAuditLog.created_at))
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all()), total

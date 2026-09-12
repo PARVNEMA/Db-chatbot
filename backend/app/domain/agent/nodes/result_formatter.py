@@ -24,6 +24,45 @@ logger = logging.getLogger(__name__)
 MAX_PROMPT_ROWS = 15
 
 
+def _toon_scalar(value: Any) -> str:
+    """Encode a flat scalar using TOON's CSV-like value representation."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+
+    text = str(value)
+    if any(character in text for character in (",", "\n", "\r", '"')):
+        return json.dumps(text, ensure_ascii=False)
+    return text
+
+
+def _serialize_query_results(rows: list[dict[str, Any]]) -> str:
+    """Serialize uniform flat rows as TOON, with compact JSON as a safe fallback."""
+    if not rows:
+        return "query_results[0]{}:"
+
+    fields = list(rows[0])
+    if not all(list(row) == fields for row in rows):
+        return json.dumps(rows, default=str, separators=(",", ":"))
+
+    if any(
+        isinstance(value, (dict, list, tuple, set))
+        for row in rows
+        for value in row.values()
+    ):
+        return json.dumps(rows, default=str, separators=(",", ":"))
+
+    header = "query_results[{}]{{{}}}:".format(len(rows), ",".join(fields))
+    values = [
+        ",".join(_toon_scalar(row[field]) for field in fields)
+        for row in rows
+    ]
+    return "\n".join([header, *(f"  {row}" for row in values)])
+
+
 def create_result_formatter_node(
     deps: GraphDependencies,
 ) -> Callable[[AgentState], Coroutine[Any, Any, dict[str, Any]]]:
@@ -47,13 +86,14 @@ def create_result_formatter_node(
         )
 
         sample_rows = execution_result[:MAX_PROMPT_ROWS]
-        results_str = json.dumps(sample_rows, default=str, indent=2)
+        results_str = _serialize_query_results(sample_rows)
 
         messages = RESULT_SUMMARY_PROMPT.format_messages(
             user_query=user_query,
             generated_sql=generated_sql,
             row_count=row_count,
             query_results=results_str,
+            messages=state.get("messages", [])[-6:],
         )
 
         try:

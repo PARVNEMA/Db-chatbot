@@ -210,6 +210,7 @@ Summary Answer:"""
 RESULT_SUMMARY_PROMPT = ChatPromptTemplate.from_messages(
     [
         SystemMessagePromptTemplate.from_template(RESULT_SUMMARY_SYSTEM_PROMPT),
+        MessagesPlaceholder(variable_name="messages", optional=True),
         HumanMessagePromptTemplate.from_template(RESULT_SUMMARY_HUMAN_PROMPT),
     ]
 )

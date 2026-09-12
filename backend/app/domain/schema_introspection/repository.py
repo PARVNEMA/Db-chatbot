@@ -146,6 +146,8 @@ class SchemaIntrospectionRepository:
                 connection_id=connection_id,
                 schema_name=t_info.get("schema_name"),
                 table_name=t_info["table_name"],
+                unique_constraints=t_info.get("unique_constraints"),
+                check_constraints=t_info.get("check_constraints"),
             )
             self._db.add(table)
             await self._db.flush()
@@ -164,6 +166,8 @@ class SchemaIntrospectionRepository:
                     fk_target_table=col_info.get("fk_target_table"),
                     fk_target_column=col_info.get("fk_target_column"),
                     ordinal_position=col_info.get("ordinal_position", 0),
+                    column_default=col_info.get("column_default"),
+                    is_read_only=col_info.get("is_read_only", False),
                 )
                 self._db.add(column)
 

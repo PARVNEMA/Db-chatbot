@@ -53,6 +53,20 @@ def _reflect_database_schema(
         pk_constraint = inspector.get_pk_constraint(table_name) or {}
         pk_columns = set(pk_constraint.get("constrained_columns") or [])
 
+        # Unique constraints
+        unique_constraints: list[dict[str, Any]] = []
+        try:
+            unique_constraints = inspector.get_unique_constraints(table_name) or []
+        except Exception as exc:
+            logger.debug("Failed to inspect unique constraints for table %s: %s", table_name, exc)
+
+        # Check constraints
+        check_constraints: list[dict[str, Any]] = []
+        try:
+            check_constraints = inspector.get_check_constraints(table_name) or []
+        except Exception as exc:
+            logger.debug("Failed to inspect check constraints for table %s: %s", table_name, exc)
+
         fk_constraints = inspector.get_foreign_keys(table_name) or []
         fk_map: dict[str, dict[str, Any]] = {}
         for fk in fk_constraints:
@@ -73,11 +87,20 @@ def _reflect_database_schema(
             c_name = col["name"]
             c_type = str(col["type"])
             c_nullable = bool(col.get("nullable", True))
+            c_default = str(col.get("default")) if col.get("default") is not None else None
             is_pk = c_name in pk_columns
             fk_info = fk_map.get(c_name, {})
             is_fk = fk_info.get("is_foreign_key", False)
             fk_target_tbl = fk_info.get("fk_target_table")
             fk_target_col = fk_info.get("fk_target_column")
+
+            # Detect if column is read-only (identity, autoincrement, serial, or computed/generated)
+            is_identity = bool(col.get("identity", False))
+            is_autoincrement = bool(col.get("autoincrement", False))
+            if not is_autoincrement and c_default and "nextval(" in c_default.lower():
+                is_autoincrement = True
+            is_generated = bool(col.get("computed", False))
+            is_read_only = is_identity or is_autoincrement or is_generated
 
             col_data = {
                 "name": c_name,
@@ -88,6 +111,8 @@ def _reflect_database_schema(
                 "fk_target_table": fk_target_tbl,
                 "fk_target_column": fk_target_col,
                 "ordinal_position": idx + 1,
+                "column_default": c_default,
+                "is_read_only": is_read_only,
             }
             col_list.append(col_data)
             raw_col_list.append(
@@ -95,8 +120,9 @@ def _reflect_database_schema(
                     "name": c_name,
                     "type": c_type,
                     "nullable": c_nullable,
-                    "default": str(col.get("default")) if col.get("default") is not None else None,
+                    "default": c_default,
                     "primary_key": is_pk,
+                    "is_read_only": is_read_only,
                 }
             )
 
@@ -104,6 +130,8 @@ def _reflect_database_schema(
             "columns": raw_col_list,
             "primary_keys": list(pk_columns),
             "foreign_keys": fk_constraints,
+            "unique_constraints": unique_constraints,
+            "check_constraints": check_constraints,
         }
 
         normalized_tables.append(
@@ -111,6 +139,8 @@ def _reflect_database_schema(
                 "schema_name": default_schema,
                 "table_name": table_name,
                 "columns": col_list,
+                "unique_constraints": unique_constraints,
+                "check_constraints": check_constraints,
             }
         )
 

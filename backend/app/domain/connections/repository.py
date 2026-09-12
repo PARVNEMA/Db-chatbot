@@ -62,6 +62,14 @@ class ConnectionRepository:
         name: str | None = None,
         dialect: str | None = None,
         encrypted_connection_string: str | None = None,
+        writes_enabled: bool | None = None,
+        max_insert_rows_per_table: int | None = None,
+        max_patch_rows_per_table: int | None = None,
+        max_total_rows_per_changeset: int | None = None,
+        max_tables_per_changeset: int | None = None,
+        approval_timeout_minutes: int | None = None,
+        undo_window_minutes: int | None = None,
+        blocked_tables: list[str] | None = None,
     ) -> Connection:
         """Update connection attributes."""
         if name is not None:
@@ -70,6 +78,22 @@ class ConnectionRepository:
             connection.dialect = dialect
         if encrypted_connection_string is not None:
             connection.encrypted_connection_string = encrypted_connection_string
+        if writes_enabled is not None:
+            connection.writes_enabled = writes_enabled
+        if max_insert_rows_per_table is not None:
+            connection.max_insert_rows_per_table = max_insert_rows_per_table
+        if max_patch_rows_per_table is not None:
+            connection.max_patch_rows_per_table = max_patch_rows_per_table
+        if max_total_rows_per_changeset is not None:
+            connection.max_total_rows_per_changeset = max_total_rows_per_changeset
+        if max_tables_per_changeset is not None:
+            connection.max_tables_per_changeset = max_tables_per_changeset
+        if approval_timeout_minutes is not None:
+            connection.approval_timeout_minutes = approval_timeout_minutes
+        if undo_window_minutes is not None:
+            connection.undo_window_minutes = undo_window_minutes
+        if blocked_tables is not None:
+            connection.blocked_tables = blocked_tables
 
         await self._db.flush()
         await self._db.refresh(connection)
