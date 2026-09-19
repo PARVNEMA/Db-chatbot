@@ -1,20 +1,16 @@
 """Unit tests for unsafe/destructive intent guardrail and refusal flow."""
 
 import uuid
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage
 
 from app.domain.agent.dependencies import GraphDependencies
 from app.domain.agent.graph import build_agent_graph, route_after_intent
 from app.domain.agent.guardrail import detect_unsafe_intent
 from app.domain.agent.nodes.intent import create_intent_node
-from app.domain.agent.nodes.unsafe_handler import UNSAFE_REFUSAL_MESSAGE, create_unsafe_handler_node
 from app.domain.agent.prompts import parse_intent_classification_response
 from app.domain.agent.state import AgentState
-
 
 # ==============================================================================
 # 1. Deterministic Guardrail Regex Tests

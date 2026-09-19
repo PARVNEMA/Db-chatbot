@@ -58,7 +58,10 @@ export function MessageList({
     metadata: {
       sql: streamState.generatedSql,
       dialect: dialect,
-      status: streamState.stepStatus === "error" ? "failed" : "running",
+      status:
+        streamState.currentStep === "error" || streamState.status === "error"
+          ? "failed"
+          : "running",
       row_count: streamState.resultRowCount,
       latency_ms: null,
     },

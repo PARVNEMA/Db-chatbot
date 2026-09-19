@@ -79,6 +79,9 @@ async def check_db_connection() -> bool:
 
     Used by health-check endpoints.
     """
+    settings = get_settings()
+    if not settings.DATABASE_URL:
+        return False
     try:
         engine = _get_engine()
         async with engine.connect() as conn:
@@ -99,6 +102,11 @@ async def connect_with_retry(max_retries: int = 3, base_delay: float = 1.0) -> N
         max_retries: Number of retry attempts.
         base_delay: Initial delay in seconds (doubled each retry).
     """
+    settings = get_settings()
+    if not settings.DATABASE_URL:
+        logger.warning("DATABASE_URL is not configured; skipping startup database connection check.")
+        return
+
     for attempt in range(1, max_retries + 1):
         try:
             engine = _get_engine()
