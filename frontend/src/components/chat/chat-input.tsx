@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
 interface ChatInputProps {
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, dryRun?: boolean) => void;
   onStopStream?: () => void;
   isStreaming?: boolean;
   disabled?: boolean;
@@ -26,12 +26,13 @@ export function ChatInput({
   ],
 }: ChatInputProps): React.JSX.Element {
   const [content, setContent] = useState("");
+  const [dryRun, setDryRun] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!content.trim() || isStreaming || disabled) return;
-    onSendMessage(content.trim());
+    onSendMessage(content.trim(), dryRun);
     setContent("");
   };
 
@@ -50,23 +51,39 @@ export function ChatInput({
 
   return (
     <div className="space-y-3">
-      {/* Quick Prompt Suggestion Pills */}
+      {/* Quick Prompt Suggestion Pills & Dry-Run Toggle */}
       {!isStreaming && (
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-          <span className="text-[11px] font-mono text-zinc-500 shrink-0 flex items-center gap-1">
-            <Sparkles className="h-3 w-3 text-blue-400" /> Suggestions:
-          </span>
-          {suggestions.map((prompt, i) => (
-            <button
-              key={i}
-              type="button"
-              onClick={() => onSendMessage(prompt)}
-              disabled={disabled}
-              className="px-2.5 py-1 rounded-lg bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800/80 text-zinc-400 hover:text-zinc-200 transition-colors text-[11px] font-mono whitespace-nowrap shrink-0"
-            >
-              {prompt}
-            </button>
-          ))}
+        <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 no-scrollbar">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-[11px] font-mono text-zinc-500 shrink-0 flex items-center gap-1">
+              <Sparkles className="h-3 w-3 text-blue-400" /> Suggestions:
+            </span>
+            {suggestions.map((prompt, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => onSendMessage(prompt, dryRun)}
+                disabled={disabled}
+                className="px-2.5 py-1 rounded-lg bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-800/80 text-zinc-400 hover:text-zinc-200 transition-colors text-[11px] font-mono whitespace-nowrap shrink-0"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setDryRun(!dryRun)}
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-mono flex items-center gap-1.5 transition-all border shrink-0 ${
+              dryRun
+                ? "bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm"
+                : "bg-zinc-900/80 text-zinc-400 border-zinc-800 hover:text-zinc-200"
+            }`}
+            title="When active, safe write queries will run in dry-run preview mode without staging or modifying the database."
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${dryRun ? "bg-amber-400 animate-pulse" : "bg-zinc-500"}`} />
+            <span>Dry-Run: <strong>{dryRun ? "ON" : "OFF"}</strong></span>
+          </button>
         </div>
       )}
 

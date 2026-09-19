@@ -19,12 +19,10 @@ from uuid import uuid4
 
 import pytest
 from starlette.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from app.core.security import create_access_token, encrypt_secret, get_password_hash
 from app.core.websocket import (
-    WS_CLOSE_FORBIDDEN,
-    WS_CLOSE_SESSION_NOT_FOUND,
-    WS_CLOSE_UNAUTHORIZED,
     BufferedEvent,
     WebSocketConnectionManager,
 )
@@ -73,8 +71,13 @@ async def test_websocket_manager_send_event_and_sequencing() -> None:
     assert sent_frame["data"] == {"foo": "bar"}
     assert "timestamp" in sent_frame
 
-    # 3. Disconnect
-    await manager.disconnect(session_id)
+    # 3. Disconnect with wrong/old websocket should NOT evict active connection
+    old_ws = AsyncMock()
+    await manager.disconnect(session_id, websocket=old_ws)
+    assert manager.get_connection(session_id) is conn
+
+    # 4. Disconnect with matching websocket should evict
+    await manager.disconnect(session_id, websocket=mock_ws)
     assert manager.get_connection(session_id) is None
 
 
@@ -87,7 +90,7 @@ async def test_websocket_manager_replay_events_since() -> None:
     user_id = uuid4()
 
     mock_ws = AsyncMock()
-    conn = await manager.connect(mock_ws, project_id, session_id, user_id)
+    await manager.connect(mock_ws, project_id, session_id, user_id)
 
     # Push 3 events
     await manager.send_event(session_id, "event_1", {"n": 1})
@@ -197,14 +200,14 @@ async def test_websocket_endpoint_auth_and_interaction(
     session_id = create_res.json()["data"]["id"]
 
     # 2. Test invalid token rejection (close code 4001)
-    with pytest.raises(Exception):
+    with pytest.raises(WebSocketDisconnect):
         with sync_client.websocket_connect(
             f"/api/v1/projects/{project.id}/chat/sessions/{session_id}/ws?token=invalid_jwt"
         ) as ws:
             pass
 
     # 3. Test non-existent session rejection (close code 4004)
-    with pytest.raises(Exception):
+    with pytest.raises(WebSocketDisconnect):
         with sync_client.websocket_connect(
             f"/api/v1/projects/{project.id}/chat/sessions/{uuid4()}/ws?token={token}"
         ) as ws:

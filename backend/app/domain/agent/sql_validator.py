@@ -147,3 +147,101 @@ def validate_read_only(sql: str, dialect: str | None = None) -> None:
             )
 
     logger.debug("SQL query successfully passed AST read-only validation.")
+
+
+_DESTRUCTIVE_WRITE_KEYWORD_PATTERN = re.compile(
+    r"\b(delete|drop|truncate|alter|create|grant|revoke|replace|attach|detach|execute|exec|call|merge)\b",
+    re.IGNORECASE,
+)
+
+_FORBIDDEN_WRITE_SUBEXPRESSIONS: tuple[type[exp.Expression], ...] = (
+    exp.Delete,
+    exp.Create,
+    exp.Drop,
+    exp.Alter,
+    exp.TruncateTable,
+    exp.Grant,
+    exp.Revoke,
+    exp.Command,
+    exp.Commit,
+    exp.Rollback,
+    exp.Transaction,
+    exp.Merge,
+    exp.Set,
+    exp.Pragma,
+)
+
+
+def validate_safe_write_sql(
+    sql: str,
+    dialect: str | None = None,
+    writes_enabled: bool = False,
+) -> None:
+    """Validate that a write SQL statement contains only safe single-statement INSERT or UPDATE.
+
+    Enforces:
+    - writes_enabled must be True.
+    - Single statement execution only (no semicolon chaining).
+    - Permitted root statements: INSERT or UPDATE only.
+    - UPDATE statements MUST contain a WHERE clause.
+    - Strictly forbids destructive expressions (DELETE, DROP, TRUNCATE, ALTER, CREATE, GRANT, REVOKE, MERGE).
+
+    Raises:
+        ValueError: If query violates any write safety rules or writes are disabled.
+    """
+    if not writes_enabled:
+        raise ValueError("Write operations are disabled for this connection.")
+
+    sanitized = sanitize_sql(sql)
+    if not sanitized:
+        raise ValueError("SQL query is empty.")
+
+    # Fast rejection of destructive keywords
+    match = _DESTRUCTIVE_WRITE_KEYWORD_PATTERN.search(sanitized)
+    if match:
+        raise ValueError(
+            f"Forbidden keyword '{match.group(1)}' detected in write statement. "
+            "Only safe INSERT and UPDATE operations are permitted."
+        )
+
+    # Parse AST with sqlglot
+    try:
+        statements = sqlglot.parse(sanitized, read=dialect)
+    except Exception as parse_err:
+        logger.warning("sqlglot AST parse failure for write SQL: %s. Error: %s", sanitized, parse_err)
+        raise ValueError(f"Could not parse SQL statement for safety validation: {parse_err}") from parse_err
+
+    valid_statements = [s for s in statements if s is not None]
+    if not valid_statements:
+        raise ValueError("Unable to parse valid SQL statements from input.")
+
+    if len(valid_statements) > 1:
+        raise ValueError(
+            f"Multi-statement execution rejected ({len(valid_statements)} statements found). "
+            "Only single-statement write operations are permitted."
+        )
+
+    statement = valid_statements[0]
+
+    # Validate that root expression is Insert or Update
+    if not isinstance(statement, (exp.Insert, exp.Update)):
+        raise ValueError(
+            f"Statement type '{type(statement).__name__}' is forbidden for write operations. "
+            "Only INSERT and UPDATE statements are permitted."
+        )
+
+    # Check for mandatory WHERE clause on UPDATE statements
+    if isinstance(statement, exp.Update) and not statement.args.get("where"):
+        raise ValueError(
+            "UPDATE statement rejected: unconstrained updates without a WHERE clause are forbidden."
+        )
+
+    # Walk AST to ensure no destructive subexpressions exist
+    for node in statement.walk():
+        if isinstance(node, _FORBIDDEN_WRITE_SUBEXPRESSIONS):
+            raise ValueError(
+                f"Forbidden operation '{type(node).__name__}' detected within write SQL AST."
+            )
+
+    logger.debug("Write SQL query successfully passed AST safety validation.")
+

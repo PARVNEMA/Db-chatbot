@@ -2,20 +2,30 @@
 
 import React, { useState } from "react";
 import { Bot, User as UserIcon, Activity } from "lucide-react";
-import type { ChatMessage } from "@/types/chat";
+import type { ChatMessage, MutationPreviewData } from "@/types/chat";
 import { SqlViewer } from "./sql-viewer";
 import { QueryResultTable } from "./query-result-table";
 import { MarkdownRenderer } from "./markdown-renderer";
 import { EventStreamModal } from "./event-stream-modal";
+import { MutationPreviewCard } from "./mutation-preview-card";
+import { MutationActionButtons } from "./mutation-action-buttons";
 
 interface MessageBubbleProps {
   message: ChatMessage;
   dialect?: string;
+  isOwner?: boolean;
+  onApprove?: (mutationId: string) => void;
+  onReject?: (mutationId: string, reason?: string) => void;
+  onUndo?: (mutationId: string, reason?: string) => void;
 }
 
 export function MessageBubble({
   message,
   dialect = "postgresql",
+  isOwner = true,
+  onApprove,
+  onReject,
+  onUndo,
 }: MessageBubbleProps): React.JSX.Element {
   const [showModal, setShowModal] = useState(false);
   const isUser = message.role === "user";
@@ -25,6 +35,37 @@ export function MessageBubble({
   const generatedSql = (meta.generated_sql as string) || (meta.sql as string);
   const executionResult = (meta.execution_result as Record<string, unknown>[]) || [];
   const resultRowCount = (meta.result_row_count as number) || executionResult.length;
+
+  // Extract mutation fields if present
+  const mutationId = (meta.mutation_id as string) || undefined;
+  const mutationStatus = (meta.status as string) || undefined;
+  const mutationChangeSet = meta.change_set as MutationPreviewData["change_set"] | undefined;
+  const previewRowCounts = meta.preview_row_counts as Record<string, number> | undefined;
+  const expiresAt = meta.expires_at as string | undefined;
+
+  // Check if stream_events has a mutation_preview event
+  let previewFromEvents: MutationPreviewData | undefined;
+  if (message.stream_events) {
+    const previewEvt = message.stream_events.find(
+      (e) => e.event === "mutation_preview" || (e as unknown as { type: string }).type === "mutation_preview"
+    );
+    if (previewEvt) {
+      previewFromEvents = ((previewEvt as unknown as { data?: MutationPreviewData }).data ||
+        previewEvt) as MutationPreviewData;
+    }
+  }
+
+  const effectivePreview: MutationPreviewData | undefined =
+    previewFromEvents ||
+    (mutationChangeSet
+      ? {
+          mutation_id: mutationId,
+          change_set: mutationChangeSet,
+          preview_row_counts: previewRowCounts,
+          expires_at: expiresAt,
+          total_rows_affected: meta.total_rows_affected as number | undefined,
+        }
+      : undefined);
 
   if (isUser) {
     return (
@@ -70,6 +111,27 @@ export function MessageBubble({
             <QueryResultTable
               rows={executionResult}
               rowCount={resultRowCount}
+            />
+          )}
+
+          {/* Embedded Mutation Preview Card */}
+          {effectivePreview && (
+            <MutationPreviewCard
+              preview={effectivePreview}
+              status={mutationStatus || "PENDING_APPROVAL"}
+              expiresAt={expiresAt}
+            />
+          )}
+
+          {/* Embedded Mutation Action Controls (Approve, Reject, Undo) */}
+          {mutationId && (mutationStatus === "PENDING_APPROVAL" || mutationStatus === "EXECUTED" || mutationStatus === "EXECUTING") && (
+            <MutationActionButtons
+              mutationId={mutationId}
+              status={mutationStatus}
+              isOwner={isOwner}
+              onApprove={() => onApprove?.(mutationId)}
+              onReject={(reason) => onReject?.(mutationId, reason)}
+              onUndo={(reason) => onUndo?.(mutationId, reason)}
             />
           )}
 

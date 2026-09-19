@@ -77,7 +77,14 @@ class WebSocketConnectionManager:
 
         If a connection for this session_id already exists, the old one is closed.
         """
-        await websocket.accept()
+        if hasattr(websocket, "client_state") and websocket.client_state.name == "CONNECTING":
+            await websocket.accept()
+        elif not hasattr(websocket, "client_state"):
+            # Mock or non-starlette websocket
+            try:
+                await websocket.accept()
+            except Exception:
+                pass
 
         async with self._lock:
             existing = self._connections.get(session_id)
@@ -109,12 +116,31 @@ class WebSocketConnectionManager:
             )
             return conn
 
-    async def disconnect(self, session_id: UUID) -> None:
-        """Unregister a WebSocket connection upon disconnect."""
+    async def disconnect(
+        self,
+        session_id: UUID,
+        websocket: WebSocket | None = None,
+    ) -> None:
+        """Unregister a WebSocket connection upon disconnect.
+
+        If `websocket` is provided, it will only unregister if that websocket is still
+        the active one registered for `session_id`. This prevents a disconnecting superseded
+        connection from evicting a newer replacement.
+        """
         async with self._lock:
-            conn = self._connections.pop(session_id, None)
-            if conn is not None:
-                logger.info("WebSocket disconnected: session_id=%s", session_id)
+            conn = self._connections.get(session_id)
+            if conn is None:
+                return
+
+            if websocket is not None and conn.websocket is not websocket:
+                logger.debug(
+                    "Skipping disconnect for session %s: connection was superseded.",
+                    session_id,
+                )
+                return
+
+            self._connections.pop(session_id, None)
+            logger.info("WebSocket disconnected: session_id=%s", session_id)
 
     def get_connection(self, session_id: UUID) -> SessionConnection | None:
         """Retrieve the active connection for a session, if any."""

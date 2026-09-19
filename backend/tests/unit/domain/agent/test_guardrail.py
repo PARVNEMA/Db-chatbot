@@ -1,20 +1,17 @@
 """Unit tests for unsafe/destructive intent guardrail and refusal flow."""
 
 import uuid
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import AIMessage
 
 from app.domain.agent.dependencies import GraphDependencies
 from app.domain.agent.graph import build_agent_graph, route_after_intent
 from app.domain.agent.guardrail import detect_unsafe_intent
 from app.domain.agent.nodes.intent import create_intent_node
-from app.domain.agent.nodes.unsafe_handler import UNSAFE_REFUSAL_MESSAGE, create_unsafe_handler_node
 from app.domain.agent.prompts import parse_intent_classification_response
+from app.domain.agent.sql_validator import validate_safe_write_sql
 from app.domain.agent.state import AgentState
-
 
 # ==============================================================================
 # 1. Deterministic Guardrail Regex Tests
@@ -88,6 +85,14 @@ def test_parse_intent_classification_with_unsafe() -> None:
     assert parsed["extracted_entities"] == ["users"]
 
 
+@pytest.mark.parametrize("write_intent", ["insert", "patch", "multi_write"])
+def test_parse_intent_classification_with_write_intents(write_intent: str) -> None:
+    """Test that parse_intent_classification_response accepts insert, patch, and multi_write."""
+    raw = f'{{"intent_type": "{write_intent}", "extracted_entities": ["departments"], "search_query": "departments"}}'
+    parsed = parse_intent_classification_response(raw)
+    assert parsed["intent_type"] == write_intent
+
+
 # ==============================================================================
 # 3. Graph Routing Tests
 # ==============================================================================
@@ -114,6 +119,31 @@ def test_route_after_intent_with_unsafe() -> None:
         "messages": [],
     }
     assert route_after_intent(state_unsafe) == "unsafe_handler"
+
+
+@pytest.mark.parametrize("write_intent", ["insert", "patch", "multi_write"])
+def test_route_after_intent_with_write_intents(write_intent: str) -> None:
+    """Test that route_after_intent routes write intents to 'mutation_planner'."""
+    state: AgentState = {
+        "project_id": uuid.uuid4(),
+        "session_id": uuid.uuid4(),
+        "connection_id": uuid.uuid4(),
+        "user_query": "Add new department",
+        "intent_type": write_intent,
+        "extracted_entities": [],
+        "relevant_schema": {},
+        "schema_context": "",
+        "generated_sql": "",
+        "sql_dialect": "postgresql",
+        "execution_result": [],
+        "execution_error": None,
+        "retry_count": 0,
+        "error_history": [],
+        "nl_summary": "",
+        "messages": [],
+    }
+    assert route_after_intent(state) == "mutation_planner"
+
 
 
 # ==============================================================================
@@ -228,3 +258,102 @@ async def test_full_graph_unsafe_query_workflow() -> None:
     assert final_state["generated_sql"] == ""
     assert final_state["execution_result"] == []
     mock_cm.execute_safe.assert_not_called()
+
+
+# ==============================================================================
+# 5. Write Guardrail & Safe Write AST Tests (Phase 3)
+# ==============================================================================
+
+
+@pytest.mark.parametrize(
+    "query,writes_enabled,expected_unsafe",
+    [
+        # When writes are disabled (default), insert and update are blocked
+        ("INSERT INTO users (name) VALUES ('Alice')", False, True),
+        ("UPDATE accounts SET balance = 100 WHERE id = 1", False, True),
+        # When writes are enabled, insert and update pass the pre-classification guardrail
+        ("INSERT INTO users (name) VALUES ('Alice')", True, False),
+        ("UPDATE accounts SET balance = 100 WHERE id = 1", True, False),
+        ("insert into orders (item, qty) values ('Widget', 5)", True, False),
+        ("update customers set status = 'active' where id = 42", True, False),
+        # Destructive commands are ALWAYS unsafe, even when writes_enabled=True
+        ("DROP TABLE users", True, True),
+        ("TRUNCATE TABLE logs", True, True),
+        ("DELETE FROM customers WHERE id = 1", True, True),
+        ("ALTER TABLE users ADD COLUMN phone VARCHAR(20)", True, True),
+        ("CREATE TABLE backdoor (id int)", True, True),
+        ("GRANT ALL PRIVILEGES ON DATABASE mydb TO hacker", True, True),
+        ("REVOKE SELECT ON users FROM guest", True, True),
+        ("EXEC sp_executesql N'SELECT 1'", True, True),
+        # Multi-statement attacks are ALWAYS unsafe, even when writes_enabled=True
+        ("SELECT 1; DROP TABLE users", True, True),
+        ("INSERT INTO users (name) VALUES ('Alice'); DROP TABLE users", True, True),
+    ],
+)
+def test_detect_unsafe_intent_with_writes_enabled(
+    query: str,
+    writes_enabled: bool,
+    expected_unsafe: bool,
+) -> None:
+    """Test guardrail behavior when writes_enabled is toggled."""
+    match = detect_unsafe_intent(query, writes_enabled=writes_enabled)
+    assert (match is not None) == expected_unsafe
+
+
+def test_validate_safe_write_sql_when_writes_disabled() -> None:
+    """Validate that writes are rejected when writes_enabled=False."""
+    with pytest.raises(ValueError, match="Write operations are disabled"):
+        validate_safe_write_sql(
+            "INSERT INTO users (name) VALUES ('Alice')",
+            writes_enabled=False,
+        )
+
+
+def test_validate_safe_write_sql_valid_insert() -> None:
+    """Validate that safe INSERT statement passes validation when writes_enabled=True."""
+    validate_safe_write_sql(
+        "INSERT INTO users (name) VALUES ('Alice')",
+        writes_enabled=True,
+    )
+
+
+def test_validate_safe_write_sql_valid_update_with_where() -> None:
+    """Validate that UPDATE with WHERE clause passes validation."""
+    validate_safe_write_sql(
+        "UPDATE users SET name = 'Bob' WHERE id = 1",
+        writes_enabled=True,
+    )
+
+
+def test_validate_safe_write_sql_rejects_unconstrained_update() -> None:
+    """Validate that UPDATE without WHERE clause is rejected."""
+    with pytest.raises(ValueError, match="WHERE clause"):
+        validate_safe_write_sql(
+            "UPDATE users SET name = 'Bob'",
+            writes_enabled=True,
+        )
+
+
+def test_validate_safe_write_sql_rejects_destructive_dml() -> None:
+    """Validate that DELETE and DROP are rejected even when writes_enabled=True."""
+    with pytest.raises(ValueError, match="Forbidden"):
+        validate_safe_write_sql(
+            "DELETE FROM users WHERE id = 1",
+            writes_enabled=True,
+        )
+
+    with pytest.raises(ValueError, match="Forbidden"):
+        validate_safe_write_sql(
+            "DROP TABLE users",
+            writes_enabled=True,
+        )
+
+
+def test_validate_safe_write_sql_rejects_multistatement() -> None:
+    """Validate that chained statements are rejected."""
+    with pytest.raises(ValueError, match="Multi-statement execution rejected"):
+        validate_safe_write_sql(
+            "INSERT INTO users (name) VALUES ('Alice'); INSERT INTO users (name) VALUES ('Bob')",
+            writes_enabled=True,
+        )
+

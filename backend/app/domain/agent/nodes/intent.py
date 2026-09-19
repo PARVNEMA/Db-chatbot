@@ -87,6 +87,44 @@ def format_schema_context_from_table_details(
     return tables_map, "\n".join(schema_lines).strip()
 
 
+def format_schema_context_from_results(
+    search_results: list[SchemaSearchResult],
+) -> tuple[dict[str, Any], str]:
+    """Format vector search schema results into structured dict and prompt string."""
+    if not search_results:
+        return {}, ""
+
+    tables_map: dict[str, list[dict[str, Any]]] = {}
+    for res in search_results:
+        col_info = {
+            "name": res.column_name,
+            "type": res.data_type,
+            "is_primary_key": res.is_primary_key,
+            "is_foreign_key": res.is_foreign_key,
+            "fk_target_table": res.fk_target_table,
+            "fk_target_column": res.fk_target_column,
+        }
+        tables_map.setdefault(res.table_name, []).append(col_info)
+
+    schema_lines: list[str] = []
+    for table_name, cols in sorted(tables_map.items()):
+        schema_lines.append(f"Table: {table_name}")
+        schema_lines.append("Columns:")
+        for col in cols:
+            flags: list[str] = []
+            if col["is_primary_key"]:
+                flags.append("PRIMARY KEY")
+            if col["is_foreign_key"] and col["fk_target_table"]:
+                target_col = col["fk_target_column"] or "id"
+                flags.append(f"REFERENCES {col['fk_target_table']}.{target_col}")
+
+            flag_str = f" [{' | '.join(flags)}]" if flags else ""
+            schema_lines.append(f"  - {col['name']} ({col['type']}){flag_str}")
+        schema_lines.append("")
+
+    return tables_map, "\n".join(schema_lines).strip()
+
+
 def _match_entity_tables(
     entities: list[str] | None,
     tables_by_name: dict[str, TableDetailResponse],
@@ -269,7 +307,8 @@ def create_intent_node(
         )
 
         # 1. Deterministic pre-classification guardrail check
-        matched_unsafe = detect_unsafe_intent(user_query)
+        writes_enabled = bool(getattr(deps.connection, "writes_enabled", False))
+        matched_unsafe = detect_unsafe_intent(user_query, writes_enabled=writes_enabled)
         if matched_unsafe:
             logger.warning(
                 "--- [Node: intent] OUTPUT (Guardrail Blocked) ---\n"
@@ -348,8 +387,8 @@ def create_intent_node(
                 logger.warning("Schema table expansion encountered error: %s; falling back.", exp_err)
 
         # Fallback to direct search results if expansion did not produce a schema context
-        # if not relevant_schema and search_results:
-        #     relevant_schema, schema_context = format_schema_context_from_results(search_results)
+        if not relevant_schema and search_results:
+            relevant_schema, schema_context = format_schema_context_from_results(search_results)
 
         retrieved_tables = list(relevant_schema.keys())
         logger.info(

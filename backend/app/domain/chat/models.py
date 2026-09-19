@@ -9,8 +9,8 @@ Contains:
 
 from __future__ import annotations
 
-from datetime import datetime
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
@@ -28,7 +28,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, CreatedAtMixin, TimestampMixin
 
 if TYPE_CHECKING:
-    from app.domain.auth.models import User
     from app.domain.connections.models import Connection
     from app.domain.projects.models import Project
 

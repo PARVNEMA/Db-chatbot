@@ -30,18 +30,21 @@ INTENT_SYSTEM_PROMPT = """You are an expert database query classifier and semant
 Your task is to analyze the user's natural language question regarding a database and extract structured intent metadata.
 
 Classify the query into exactly one of the following intent types:
-- "lookup": all the Database Related table,Query,Sechema should be included. Retrieving specific rows, details, or single entities (e.g. "Find customer with ID 42", "Show details for order #1002",User Can Ask for Table Schema,Column Schema,etc. also It Can Ask for Table Data,Database Detail, like which table I conneced with what dialect).
+- "lookup": Retrieving specific rows, details, single entities, or questions exploring database tables, schema, and column structure (e.g. "Find customer with ID 42", "Show details for order #1002", "What tables exist?", "Show schema for employees").
 - "aggregation": Computing metrics, totals, counts, averages, minimums, maximums, or groupings (e.g. "Total revenue by department", "How many users registered this month").
 - "comparison": Comparing metrics across categories, cohorts, or time periods (e.g. "Compare sales in Q1 vs Q2", "Which region had higher churn?").
 - "trend": Historical patterns, time-series analysis, or growth over time (e.g. "Monthly active users over the past year", "Weekly revenue growth").
+- "insert": Request to insert or add new record(s) into database table(s) (e.g. "Add a new customer named Alice", "Insert row into departments with name Marketing").
+- "patch": Request to update or modify existing record(s) in a database table (e.g. "Update Bob's email to bob@example.com", "Change status of order 5 to completed").
+- "multi_write": Complex write requests that involve multiple tables or dependent operations (e.g. "Create department 'R&D' and add 2 employees to it").
 - "general": Exploratory, broad, or informational questions about data, greetings, or questions about capabilities.
-- "unsafe": Requests attempting to modify, drop, delete, alter, truncate, or inject destructive commands into the database or schema (e.g., DROP TABLE, TRUNCATE, DELETE FROM, ALTER TABLE, INSERT, UPDATE, GRANT, REVOKE, or any destructive/malicious DDL/DML operation).
+- "unsafe": Requests attempting destructive, unauthorized, or administrative operations on the database (e.g. DROP TABLE, TRUNCATE, DELETE FROM, ALTER TABLE, CREATE TABLE, GRANT, REVOKE, or any destructive/malicious DDL/DML operation). Note: DELETE is strictly unsafe and cannot be executed.
 
 Extract key domain entities, potential table/column names, and generate an optimized search query for semantic vector search over the schema.
 
 Respond ONLY with a valid JSON object matching this schema:
 {{
-  "intent_type": "lookup" | "aggregation" | "comparison" | "trend" | "general" | "unsafe",
+  "intent_type": "lookup" | "aggregation" | "comparison" | "trend" | "insert" | "patch" | "multi_write" | "general" | "unsafe",
   "extracted_entities": ["entity1", "entity2"],
   "search_query": "clean concise query string optimized for semantic schema lookup"
 }}
@@ -66,7 +69,18 @@ def parse_intent_classification_response(response_text: str) -> dict[str, Any]:
     try:
         data = json.loads(json_str)
         intent_type = str(data.get("intent_type", "general")).lower()
-        if intent_type not in {"lookup", "aggregation", "comparison", "trend", "general", "unsafe"}:
+        valid_intents = {
+            "lookup",
+            "aggregation",
+            "comparison",
+            "trend",
+            "general",
+            "unsafe",
+            "insert",
+            "patch",
+            "multi_write",
+        }
+        if intent_type not in valid_intents:
             intent_type = "general"
         entities = list(data.get("extracted_entities", []))
         search_query = str(data.get("search_query", "")).strip()
@@ -248,3 +262,119 @@ def extract_clean_sql(raw_response: str) -> str:
     # Strip any leading 'SQL:' or 'Query:' labels
     cleaned = re.sub(r"^(?:SQL|Query|Output):\s*", "", cleaned, flags=re.IGNORECASE).strip()
     return cleaned
+
+
+# ==============================================================================
+# 6. Mutation Planner Prompt (Phase 4)
+# ==============================================================================
+
+MUTATION_PLANNER_SYSTEM_PROMPT = """You are an expert database mutation planner.
+Your task is to analyze the user's write/modification request and formulate a strictly structured, type-safe change-set proposal in JSON.
+
+Target Database Dialect: {sql_dialect}
+
+MANDATORY RULES (STRICTLY ENFORCED):
+1. NO RAW SQL: Never generate executable SQL (no INSERT, UPDATE, DELETE statements). Output ONLY a structured JSON proposal matching the ChangeSet schema.
+2. NO READ-ONLY COLUMNS IN INSERT/UPDATE VALUES: Columns annotated with [READ-ONLY] (auto-increment, identity, serial, or generated columns) MUST NOT be included in INSERT/PATCH column lists or row update values.
+3. MANDATORY FILTER FOR PATCH: Every "patch" operation MUST specify a non-empty `filter` dictionary identifying the row(s) to modify (e.g., {{"id": 42}} or {{"email": "user@example.com"}}). Unconstrained updates without a filter are strictly forbidden.
+4. PATCH PAYLOAD FORMAT: For "patch", `columns` lists the column names being updated, `rows` contains a 1-element list with the dictionary of updated values (e.g. [{{"name": "New Name", "status": "active"}}]), and `filter` specifies which row(s) to modify. [PRIMARY KEY] columns (even if auto-generated) SHOULD be used in the `filter` condition.
+5. CROSS-TABLE $ref DEPENDENCIES: When an inserted row needs to reference a generated value (such as an auto-generated primary key) from a prior mutation in the same change-set:
+   - Declare the 0-indexed sequence of the prior mutation in `dependencies: [0]`.
+   - Use the reference syntax: "$ref:mutations[N].returning.<column>" as the field value (e.g. "$ref:mutations[0].returning.id").
+6. REQUIRED INSERT COLUMNS: Ensure all non-nullable columns without defaults (annotated with [REQUIRED FOR INSERT]) are included in the INSERT payload.
+7. TYPE SAFETY: Coerce user-provided values to conform to the declared database column types (e.g. integer, boolean, numeric, ISO date).
+8. NO DESTRUCTIVE ACTIONS: Delete, drop, and truncate operations are strictly forbidden.
+9. INSUFFICIENT INFORMATION: If the user request lacks essential details to plan the operation (e.g. missing which record to update, missing target values, or table does not exist): provide a polite explanation in `summary`, set `expected_total_rows_affected: 0`, and set `mutations: []`.
+
+Available Writable Schema Context:
+{schema_context}
+
+FEW-SHOT EXAMPLES:
+
+Example 1 (INSERT):
+User: "Add customer Alice Smith with email alice@example.com"
+```json
+{{
+  "summary": "Insert customer Alice Smith into customers",
+  "expected_total_rows_affected": 1,
+  "mutations": [
+    {{
+      "sequence": 1,
+      "operation": "insert",
+      "table": "customers",
+      "columns": ["name", "email"],
+      "rows": [
+        {{"name": "Alice Smith", "email": "alice@example.com"}}
+      ],
+      "filter": null,
+      "dependencies": []
+    }}
+  ]
+}}
+```
+
+Example 2 (PATCH / UPDATE):
+User: "Update user 42 name to Bob and status to active" (or "patch user where id=42 set name='Bob'")
+```json
+{{
+  "summary": "Update user 42 name to Bob and status to active",
+  "expected_total_rows_affected": 1,
+  "mutations": [
+    {{
+      "sequence": 1,
+      "operation": "patch",
+      "table": "users",
+      "columns": ["name", "status"],
+      "rows": [
+        {{"name": "Bob", "status": "active"}}
+      ],
+      "filter": {{"id": 42}},
+      "dependencies": []
+    }}
+  ]
+}}
+```
+
+Example 3 (Insufficient information):
+User: "patch user" (or "update status" without which record or what value)
+```json
+{{
+  "summary": "Please specify which record you want to update (such as the user ID or email) and the target values to set.",
+  "expected_total_rows_affected": 0,
+  "mutations": []
+}}
+```
+
+Respond ONLY with a valid JSON object in a ```json markdown fence.
+"""
+
+MUTATION_PLANNER_HUMAN_PROMPT = """User Request: {user_query}"""
+
+MUTATION_PLANNER_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        SystemMessagePromptTemplate.from_template(MUTATION_PLANNER_SYSTEM_PROMPT),
+        MessagesPlaceholder(variable_name="messages", optional=True),
+        HumanMessagePromptTemplate.from_template(MUTATION_PLANNER_HUMAN_PROMPT),
+    ]
+)
+
+
+def parse_mutation_planner_response(response_text: str) -> dict[str, Any]:
+    """Parse JSON response from mutation planner LLM call into a structured dictionary."""
+    cleaned = response_text.strip()
+    match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned)
+    json_str = match.group(1) if match else cleaned
+
+    try:
+        data = json.loads(json_str)
+        if not isinstance(data, dict):
+            raise ValueError("Expected root JSON object for mutation proposal.")
+        return data
+    except Exception as exc:
+        logger.warning(
+            "Failed to parse mutation planner JSON: %s. Raw response: %s",
+            exc,
+            response_text,
+        )
+        raise ValueError(f"Could not parse valid mutation proposal JSON from LLM: {exc}") from exc
+

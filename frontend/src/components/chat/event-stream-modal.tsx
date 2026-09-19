@@ -21,13 +21,13 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { ChatMessage, ChatSSEEvent } from "@/types/chat";
+import type { ChatMessage, ChatSSEEvent, WebSocketOutboundFrame } from "@/types/chat";
 
 interface EventStreamModalProps {
   isOpen: boolean;
   onClose: () => void;
   message: ChatMessage;
-  events?: ChatSSEEvent[];
+  events?: (ChatSSEEvent | WebSocketOutboundFrame | Record<string, unknown>)[];
   dialect?: string;
 }
 
@@ -49,7 +49,9 @@ export function EventStreamModal({
     queryRun?.generated_sql ||
     "";
   const status =
-    (meta.status as string) || queryRun?.status || "success";
+    (meta.status as string) ||
+    queryRun?.status ||
+    "completed";
   const latencyMs =
     (meta.latency_ms as number) ?? queryRun?.latency_ms ?? null;
   const rowCount =
@@ -78,16 +80,18 @@ export function EventStreamModal({
   }[] = [];
 
   if (hasEventStream) {
-    events.forEach((ev) => {
+    events.forEach((rawEv) => {
+      const ev = rawEv as Record<string, unknown>;
+      const eventName = String(ev.type || ev.event || "event");
       displayEvents.push({
-        event: ev.event,
-        label: formatEventName(ev.event),
-        status: String(ev.event).includes("error")
+        event: eventName,
+        label: formatEventName(eventName),
+        status: eventName.includes("error")
           ? "error"
-          : ev.event === "final_result" || ev.event === "done"
+          : eventName === "final_result" || eventName === "done"
           ? "success"
           : "info",
-        data: ev as unknown as Record<string, unknown>,
+        data: ev,
       });
     });
   } else {

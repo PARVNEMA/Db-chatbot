@@ -258,6 +258,7 @@ class PendingMutationRepository:
     ) -> PendingMutation:
         """Create and persist a staged mutation proposal."""
         mutation = PendingMutation(
+            id=uuid.uuid4(),
             project_id=project_id,
             session_id=session_id,
             connection_id=connection_id,

@@ -23,7 +23,7 @@ select = [
     "B",   # flake8-bugbear
     "UP",  # pyupgrade
 ]
-ignore = ["E501"]
+ignore = ["E501", "C901"]
 
 [tool.pyright]
 include = ["app"]

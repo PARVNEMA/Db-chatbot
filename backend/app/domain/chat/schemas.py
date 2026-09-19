@@ -83,6 +83,10 @@ class ChatMessageRequest(BaseModel):
         max_length=1000,
         description="Natural language question or instruction for the database agent.",
     )
+    dry_run: bool = Field(
+        default=False,
+        description="When True, evaluates planning, validation, and preview without staging or executing writes.",
+    )
 
 
 class ChatMessageResponse(BaseModel):
@@ -168,3 +172,14 @@ class MutationRejectRequest(BaseModel):
     """Payload for rejecting a pending mutation."""
 
     reason: str | None = Field(default=None, max_length=500, description="Optional rejection explanation")
+
+
+class MutationUndoRequest(BaseModel):
+    """Payload for requesting soft-undo reversal of an executed mutation."""
+
+    reason: str | None = Field(
+        default=None,
+        max_length=500,
+        description="Optional reason or audit justification for reverting this transaction.",
+    )
+

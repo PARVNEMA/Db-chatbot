@@ -10,15 +10,16 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, AsyncGenerator
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import StreamingResponse
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
+from app.core.exceptions import ForbiddenException, NotFoundException
 from app.core.responses import (
     ApiResponse,
     PaginatedData,
@@ -28,7 +29,6 @@ from app.core.responses import (
 from app.core.security import verify_token
 from app.core.websocket import (
     WS_CLOSE_FORBIDDEN,
-    WS_CLOSE_NORMAL,
     WS_CLOSE_SESSION_NOT_FOUND,
     WS_CLOSE_UNAUTHORIZED,
     websocket_manager,
@@ -44,6 +44,11 @@ from app.domain.chat.schemas import (
     ChatSessionCreate,
     ChatSessionResponse,
     ChatSessionUpdate,
+    MutationApproveRequest,
+    MutationAuditLogResponse,
+    MutationRejectRequest,
+    MutationUndoRequest,
+    PendingMutationResponse,
 )
 from app.domain.chat.services import ChatService, get_chat_service
 from app.domain.connections.manager import connection_manager
@@ -234,6 +239,7 @@ async def send_chat_message(
         session_id=session_id,
         user_id=current_user.id,
         content=payload.content,
+        dry_run=payload.dry_run,
     )
 
     return StreamingResponse(
@@ -287,10 +293,14 @@ async def chat_websocket_endpoint(
         payload = verify_token(token)
         user_id_str = payload.get("sub")
         if not user_id_str:
+            if hasattr(websocket, "client_state") and websocket.client_state.name == "CONNECTING":
+                await websocket.accept()
             await websocket.close(code=WS_CLOSE_UNAUTHORIZED, reason="Missing subject in token")
             return
         user_id = uuid.UUID(user_id_str)
     except (JWTError, ValueError, TypeError):
+        if hasattr(websocket, "client_state") and websocket.client_state.name == "CONNECTING":
+            await websocket.accept()
         await websocket.close(code=WS_CLOSE_UNAUTHORIZED, reason="Invalid or expired token")
         return
 
@@ -299,6 +309,8 @@ async def chat_websocket_endpoint(
         user_repo = UserRepository(db_session)
         user = await user_repo.get_by_id(user_id)
         if not user or not user.is_active:
+            if hasattr(websocket, "client_state") and websocket.client_state.name == "CONNECTING":
+                await websocket.accept()
             await websocket.close(code=WS_CLOSE_UNAUTHORIZED, reason="User inactive or not found")
             return
 
@@ -309,9 +321,13 @@ async def chat_websocket_endpoint(
                 user_id=user_id,
             )
         except NotFoundException:
+            if hasattr(websocket, "client_state") and websocket.client_state.name == "CONNECTING":
+                await websocket.accept()
             await websocket.close(code=WS_CLOSE_SESSION_NOT_FOUND, reason="Chat session not found")
             return
         except ForbiddenException:
+            if hasattr(websocket, "client_state") and websocket.client_state.name == "CONNECTING":
+                await websocket.accept()
             await websocket.close(code=WS_CLOSE_FORBIDDEN, reason="Access to project denied")
             return
 
@@ -363,6 +379,7 @@ async def chat_websocket_endpoint(
                     )
                     continue
 
+                dry_run = bool(frame_data.get("dry_run", False))
                 # Process query through agent and dispatch via WebSocket
                 async with _get_chat_service_context(project_id) as (_, chat_service):
                     await chat_service.send_message_websocket(
@@ -370,6 +387,114 @@ async def chat_websocket_endpoint(
                         session_id=session_id,
                         user_id=user_id,
                         content=content.strip(),
+                        dry_run=dry_run,
+                    )
+
+            elif frame_type == "approve":
+                mutation_id_str = frame_data.get("mutation_id")
+                idempotency_key = frame_data.get("idempotency_key")
+                if not mutation_id_str or not idempotency_key:
+                    await websocket_manager.send_event(
+                        session_id=session_id,
+                        event_type="error",
+                        data={"message": "mutation_id and idempotency_key are required for approval."},
+                    )
+                    continue
+
+                try:
+                    mutation_id = uuid.UUID(mutation_id_str)
+                    async with _get_chat_service_context(project_id) as (_, chat_service):
+                        await chat_service.approve_mutation(
+                            project_id=project_id,
+                            session_id=session_id,
+                            mutation_id=mutation_id,
+                            user_id=user_id,
+                            idempotency_key=str(idempotency_key),
+                            auto_execute=True,
+                        )
+                except Exception as exc:
+                    logger.warning("Approval failed via WebSocket: %s", exc)
+                    await websocket_manager.send_event(
+                        session_id=session_id,
+                        event_type="error",
+                        data={"message": str(exc)},
+                    )
+
+            elif frame_type == "reject":
+                mutation_id_str = frame_data.get("mutation_id")
+                reason = frame_data.get("reason")
+                if not mutation_id_str:
+                    await websocket_manager.send_event(
+                        session_id=session_id,
+                        event_type="error",
+                        data={"message": "mutation_id is required for rejection."},
+                    )
+                    continue
+
+                try:
+                    mutation_id = uuid.UUID(mutation_id_str)
+                    async with _get_chat_service_context(project_id) as (_, chat_service):
+                        await chat_service.reject_mutation(
+                            project_id=project_id,
+                            session_id=session_id,
+                            mutation_id=mutation_id,
+                            user_id=user_id,
+                            reason=reason,
+                        )
+                except Exception as exc:
+                    logger.warning("Rejection failed via WebSocket: %s", exc)
+                    await websocket_manager.send_event(
+                        session_id=session_id,
+                        event_type="error",
+                        data={"message": str(exc)},
+                    )
+
+            elif frame_type == "undo":
+                mutation_id_str = frame_data.get("mutation_id")
+                reason = frame_data.get("reason")
+                if not mutation_id_str:
+                    await websocket_manager.send_event(
+                        session_id=session_id,
+                        event_type="error",
+                        data={"message": "mutation_id is required for undo."},
+                    )
+                    continue
+
+                try:
+                    mutation_id = uuid.UUID(mutation_id_str)
+                    async with _get_chat_service_context(project_id) as (_, chat_service):
+                        await chat_service.undo_mutation(
+                            project_id=project_id,
+                            session_id=session_id,
+                            mutation_id=mutation_id,
+                            user_id=user_id,
+                            reason=reason,
+                        )
+                except Exception as exc:
+                    logger.warning("Undo failed via WebSocket: %s", exc)
+                    await websocket_manager.send_event(
+                        session_id=session_id,
+                        event_type="error",
+                        data={"message": str(exc)},
+                    )
+
+            elif frame_type == "field_response":
+                fields = frame_data.get("fields")
+                if not fields or not isinstance(fields, dict):
+                    await websocket_manager.send_event(
+                        session_id=session_id,
+                        event_type="error",
+                        data={"message": "fields dictionary is required in field_response."},
+                    )
+                    continue
+
+                formatted_response = ", ".join(f"{k}: {v}" for k, v in fields.items())
+                async with _get_chat_service_context(project_id) as (_, chat_service):
+                    await chat_service.send_message_websocket(
+                        project_id=project_id,
+                        session_id=session_id,
+                        user_id=user_id,
+                        content=f"Provided missing fields: {formatted_response}",
                     )
 
             else:
@@ -380,4 +505,204 @@ async def chat_websocket_endpoint(
     except Exception as exc:
         logger.exception("Unexpected error in WebSocket loop for session %s: %s", session_id, exc)
     finally:
-        await websocket_manager.disconnect(session_id=session_id)
+        await websocket_manager.disconnect(session_id=session_id, websocket=websocket)
+
+
+# ==============================================================================
+# REST Fallback Endpoints for Pending Mutations (Phase 5)
+# ==============================================================================
+
+
+@router.get(
+    "/{project_id}/chat/sessions/{session_id}/mutations/{mutation_id}",
+    response_model=ApiResponse[PendingMutationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Get Pending Mutation",
+)
+async def get_pending_mutation(
+    project_id: uuid.UUID,
+    session_id: uuid.UUID,
+    mutation_id: uuid.UUID,
+    service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> ApiResponse[PendingMutationResponse]:
+    """Retrieve details and row preview counts for a staged mutation."""
+    mutation = await service.get_mutation(
+        project_id=project_id,
+        session_id=session_id,
+        mutation_id=mutation_id,
+        user_id=current_user.id,
+    )
+    return success_response(
+        data=PendingMutationResponse.model_validate(mutation),
+        message="Mutation retrieved successfully.",
+    )
+
+
+@router.get(
+    "/{project_id}/chat/sessions/{session_id}/mutations",
+    response_model=ApiResponse[PaginatedData[PendingMutationResponse]],
+    status_code=status.HTTP_200_OK,
+    summary="List Pending Mutations",
+)
+async def list_pending_mutations(
+    project_id: uuid.UUID,
+    session_id: uuid.UUID,
+    pagination: Pagination,
+    service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> ApiResponse[PaginatedData[PendingMutationResponse]]:
+    """List pending mutations for a chat session."""
+    items, total = await service.list_mutations(
+        project_id=project_id,
+        session_id=session_id,
+        user_id=current_user.id,
+        pagination=pagination,
+    )
+    return paginated_response(
+        items=[PendingMutationResponse.model_validate(m) for m in items],
+        total=total,
+        skip=pagination.skip,
+        limit=pagination.limit,
+        message="Pending mutations retrieved successfully.",
+    )
+
+
+@router.post(
+    "/{project_id}/chat/sessions/{session_id}/mutations/{mutation_id}/approve",
+    response_model=ApiResponse[PendingMutationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Approve Pending Mutation",
+)
+async def approve_pending_mutation(
+    project_id: uuid.UUID,
+    session_id: uuid.UUID,
+    mutation_id: uuid.UUID,
+    payload: MutationApproveRequest,
+    service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> ApiResponse[PendingMutationResponse]:
+    """Approve a staged mutation proposal (project owner only)."""
+    mutation = await service.approve_mutation(
+        project_id=project_id,
+        session_id=session_id,
+        mutation_id=mutation_id,
+        user_id=current_user.id,
+        idempotency_key=payload.idempotency_key,
+    )
+    return success_response(
+        data=PendingMutationResponse.model_validate(mutation),
+        message="Mutation approved successfully.",
+    )
+
+
+@router.post(
+    "/{project_id}/chat/sessions/{session_id}/mutations/{mutation_id}/reject",
+    response_model=ApiResponse[PendingMutationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Reject Pending Mutation",
+)
+async def reject_pending_mutation(
+    project_id: uuid.UUID,
+    session_id: uuid.UUID,
+    mutation_id: uuid.UUID,
+    payload: MutationRejectRequest,
+    service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> ApiResponse[PendingMutationResponse]:
+    """Reject a staged mutation proposal (project owner only)."""
+    mutation = await service.reject_mutation(
+        project_id=project_id,
+        session_id=session_id,
+        mutation_id=mutation_id,
+        user_id=current_user.id,
+        reason=payload.reason,
+    )
+    return success_response(
+        data=PendingMutationResponse.model_validate(mutation),
+        message="Mutation rejected successfully.",
+    )
+
+
+@router.post(
+    "/{project_id}/chat/sessions/{session_id}/mutations/{mutation_id}/execute",
+    response_model=ApiResponse[PendingMutationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Execute Approved Mutation",
+)
+async def execute_approved_mutation(
+    project_id: uuid.UUID,
+    session_id: uuid.UUID,
+    mutation_id: uuid.UUID,
+    service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> ApiResponse[PendingMutationResponse]:
+    """Execute an approved mutation in a single atomic transaction (project owner only)."""
+    mutation = await service.execute_mutation(
+        project_id=project_id,
+        session_id=session_id,
+        mutation_id=mutation_id,
+        user_id=current_user.id,
+    )
+    return success_response(
+        data=PendingMutationResponse.model_validate(mutation),
+        message="Mutation executed successfully.",
+    )
+
+
+@router.get(
+    "/{project_id}/chat/audit-logs",
+    response_model=ApiResponse[PaginatedData[MutationAuditLogResponse]],
+    status_code=status.HTTP_200_OK,
+    summary="List Mutation Audit Logs",
+)
+async def list_mutation_audit_logs(
+    project_id: uuid.UUID,
+    pagination: Pagination,
+    service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> ApiResponse[PaginatedData[MutationAuditLogResponse]]:
+    """List immutable audit records of write operations for a project."""
+    items, total = await service.list_audit_logs(
+        project_id=project_id,
+        user_id=current_user.id,
+        pagination=pagination,
+    )
+    return paginated_response(
+        items=[MutationAuditLogResponse.model_validate(log) for log in items],
+        total=total,
+        skip=pagination.skip,
+        limit=pagination.limit,
+        message="Audit logs retrieved successfully.",
+    )
+
+
+@router.post(
+    "/{project_id}/chat/sessions/{session_id}/mutations/{mutation_id}/undo",
+    response_model=ApiResponse[PendingMutationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="Soft-Undo Mutation",
+)
+async def undo_mutation_endpoint(
+    project_id: uuid.UUID,
+    session_id: uuid.UUID,
+    mutation_id: uuid.UUID,
+    payload: MutationUndoRequest,
+    service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[User, Depends(get_current_active_user)],
+) -> ApiResponse[PendingMutationResponse]:
+    """Revert an executed mutation within its configured undo window (project owner only)."""
+    mutation = await service.undo_mutation(
+        project_id=project_id,
+        session_id=session_id,
+        mutation_id=mutation_id,
+        user_id=current_user.id,
+        reason=payload.reason,
+    )
+    return success_response(
+        data=PendingMutationResponse.model_validate(mutation),
+        message="Mutation successfully undone and reverted.",
+    )
+
+
+

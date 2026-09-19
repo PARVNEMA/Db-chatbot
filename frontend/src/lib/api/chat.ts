@@ -8,6 +8,11 @@ import type {
   ChatSessionCreate,
   ChatSessionUpdate,
   ChatSSEEvent,
+  PendingMutation,
+  MutationAuditLog,
+  MutationApproveRequest,
+  MutationRejectRequest,
+  MutationUndoRequest,
 } from "@/types/chat";
 
 export const chatApi = {
@@ -54,6 +59,74 @@ export const chatApi = {
       `/projects/${projectId}/chat/sessions/${sessionId}/messages`,
       { params }
     ),
+
+  // Pending Mutation REST Fallbacks
+  getMutation: (
+    projectId: string,
+    sessionId: string,
+    mutationId: string
+  ): Promise<ApiResponse<PendingMutation>> =>
+    apiClient.get(
+      `/projects/${projectId}/chat/sessions/${sessionId}/mutations/${mutationId}`
+    ),
+
+  listMutations: (
+    projectId: string,
+    sessionId: string,
+    params?: PaginationParams
+  ): Promise<ApiResponse<PaginatedData<PendingMutation>>> =>
+    apiClient.get(
+      `/projects/${projectId}/chat/sessions/${sessionId}/mutations`,
+      { params }
+    ),
+
+  approveMutation: (
+    projectId: string,
+    sessionId: string,
+    mutationId: string,
+    data: MutationApproveRequest
+  ): Promise<ApiResponse<PendingMutation>> =>
+    apiClient.post(
+      `/projects/${projectId}/chat/sessions/${sessionId}/mutations/${mutationId}/approve`,
+      data
+    ),
+
+  rejectMutation: (
+    projectId: string,
+    sessionId: string,
+    mutationId: string,
+    data?: MutationRejectRequest
+  ): Promise<ApiResponse<PendingMutation>> =>
+    apiClient.post(
+      `/projects/${projectId}/chat/sessions/${sessionId}/mutations/${mutationId}/reject`,
+      data ?? {}
+    ),
+
+  executeMutation: (
+    projectId: string,
+    sessionId: string,
+    mutationId: string
+  ): Promise<ApiResponse<PendingMutation>> =>
+    apiClient.post(
+      `/projects/${projectId}/chat/sessions/${sessionId}/mutations/${mutationId}/execute`
+    ),
+
+  undoMutation: (
+    projectId: string,
+    sessionId: string,
+    mutationId: string,
+    data?: MutationUndoRequest
+  ): Promise<ApiResponse<PendingMutation>> =>
+    apiClient.post(
+      `/projects/${projectId}/chat/sessions/${sessionId}/mutations/${mutationId}/undo`,
+      data ?? {}
+    ),
+
+  listAuditLogs: (
+    projectId: string,
+    params?: PaginationParams
+  ): Promise<ApiResponse<PaginatedData<MutationAuditLog>>> =>
+    apiClient.get(`/projects/${projectId}/chat/audit-logs`, { params }),
 };
 
 /**

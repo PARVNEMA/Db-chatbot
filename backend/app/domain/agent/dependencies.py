@@ -15,6 +15,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import get_llm_client
+from app.core.websocket import WebSocketConnectionManager, websocket_manager
 from app.domain.connections.manager import ConnectionManager, connection_manager
 from app.domain.connections.models import Connection
 from app.domain.connections.services import ConnectionService
@@ -36,6 +37,7 @@ class GraphDependencies:
     llm: BaseChatModel
     user_id: uuid.UUID
     schema_service: SchemaIntrospectionService | None = None
+    ws_manager: WebSocketConnectionManager | None = None
 
 
 async def build_graph_dependencies(
@@ -44,6 +46,7 @@ async def build_graph_dependencies(
     user_id: uuid.UUID,
     manager: ConnectionManager = connection_manager,
     llm_override: BaseChatModel | None = None,
+    ws_manager: WebSocketConnectionManager | None = websocket_manager,
 ) -> GraphDependencies:
     """Build and resolve runtime dependencies for executing the agent graph.
 
@@ -89,4 +92,5 @@ async def build_graph_dependencies(
         llm=llm,
         user_id=user_id,
         schema_service=schema_service,
+        ws_manager=ws_manager,
     )

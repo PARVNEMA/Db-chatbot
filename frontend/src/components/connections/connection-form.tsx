@@ -12,9 +12,14 @@ import {
   Sparkles,
   RefreshCw,
   Database,
+  ShieldCheck,
+  ShieldAlert,
+  Sliders,
 } from "lucide-react";
 
 import type { Connection } from "@/types/connection";
+import { useAuth } from "@/providers/auth-provider";
+import { useProject } from "@/providers/project-provider";
 import { connectionsApi } from "@/lib/api/connections";
 import { connectionSchema, type ConnectionFormData } from "@/lib/validations";
 import { DialectSelect, DIALECT_TEMPLATES } from "./dialect-select";
@@ -49,6 +54,10 @@ export function ConnectionForm({
   const [isTesting, setIsTesting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
+  const { user } = useAuth();
+  const { project } = useProject();
+  const isOwner = !project || user?.id === project.owner_id || !!user?.is_superuser;
+
   const isEditing = !!connection;
 
   const {
@@ -66,10 +75,19 @@ export function ConnectionForm({
       name: connection?.name || "Production Database",
       dialect: (connection?.dialect as "postgresql" | "mysql" | "mssql" | "snowflake" | "sqlite") || "postgresql",
       connection_string: "",
+      writes_enabled: connection?.writes_enabled ?? false,
+      max_tables_per_changeset: connection?.max_tables_per_changeset ?? 1,
+      max_total_rows_per_changeset: connection?.max_total_rows_per_changeset ?? 10,
+      max_insert_rows_per_table: connection?.max_insert_rows_per_table ?? 5,
+      max_patch_rows_per_table: connection?.max_patch_rows_per_table ?? 1,
+      approval_timeout_minutes: connection?.approval_timeout_minutes ?? 15,
+      undo_window_minutes: connection?.undo_window_minutes ?? 0,
+      blocked_tables: connection?.blocked_tables ? connection.blocked_tables.join(", ") : "",
     },
   });
 
   const selectedDialect = watch("dialect");
+  const writesEnabled = watch("writes_enabled");
 
   useEffect(() => {
     if (connection) {
@@ -77,6 +95,14 @@ export function ConnectionForm({
         name: connection.name,
         dialect: (connection.dialect as "postgresql" | "mysql" | "mssql" | "snowflake" | "sqlite") || "postgresql",
         connection_string: "",
+        writes_enabled: connection.writes_enabled ?? false,
+        max_tables_per_changeset: connection.max_tables_per_changeset ?? 1,
+        max_total_rows_per_changeset: connection.max_total_rows_per_changeset ?? 10,
+        max_insert_rows_per_table: connection.max_insert_rows_per_table ?? 5,
+        max_patch_rows_per_table: connection.max_patch_rows_per_table ?? 1,
+        approval_timeout_minutes: connection.approval_timeout_minutes ?? 15,
+        undo_window_minutes: connection.undo_window_minutes ?? 0,
+        blocked_tables: connection.blocked_tables ? connection.blocked_tables.join(", ") : "",
       });
     }
   }, [connection, reset]);
@@ -123,14 +149,29 @@ export function ConnectionForm({
   const onSubmit = async (data: ConnectionFormData) => {
     setIsSubmitting(true);
     try {
+      const blockedTablesList = data.blocked_tables
+        ? data.blocked_tables
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+
       if (isEditing) {
         const res = await connectionsApi.update(projectId, {
           name: data.name,
           dialect: data.dialect,
           connection_string: data.connection_string || undefined,
+          writes_enabled: data.writes_enabled,
+          max_tables_per_changeset: data.max_tables_per_changeset,
+          max_total_rows_per_changeset: data.max_total_rows_per_changeset,
+          max_insert_rows_per_table: data.max_insert_rows_per_table,
+          max_patch_rows_per_table: data.max_patch_rows_per_table,
+          approval_timeout_minutes: data.approval_timeout_minutes,
+          undo_window_minutes: data.undo_window_minutes,
+          blocked_tables: blockedTablesList,
         });
         if (res.success) {
-          toast.success("Database connection updated successfully!");
+          toast.success("Database connection & write policy updated successfully!");
           onSaved?.();
         } else {
           throw new Error(res.message || "Failed to update connection");
@@ -140,6 +181,14 @@ export function ConnectionForm({
           name: data.name,
           dialect: data.dialect,
           connection_string: data.connection_string,
+          writes_enabled: data.writes_enabled,
+          max_tables_per_changeset: data.max_tables_per_changeset,
+          max_total_rows_per_changeset: data.max_total_rows_per_changeset,
+          max_insert_rows_per_table: data.max_insert_rows_per_table,
+          max_patch_rows_per_table: data.max_patch_rows_per_table,
+          approval_timeout_minutes: data.approval_timeout_minutes,
+          undo_window_minutes: data.undo_window_minutes,
+          blocked_tables: blockedTablesList,
         });
         if (res.success) {
           toast.success("Database connection established and saved!");
@@ -276,6 +325,197 @@ export function ConnectionForm({
                 <p className="text-xs text-red-400">
                   {errors.connection_string.message}
                 </p>
+              )}
+            </div>
+
+            {/* Safe Write Policy & Guardrails Section */}
+            <div className="rounded-xl border border-zinc-800 bg-zinc-950/50 p-4 space-y-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-2.5">
+                  <div className={`p-2 rounded-lg border ${writesEnabled ? "bg-amber-500/10 border-amber-500/30 text-amber-400" : "bg-zinc-800/80 border-zinc-700 text-zinc-400"}`}>
+                    <Sliders className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-zinc-100 flex items-center gap-2">
+                      Safe Write Policy & Guardrails
+                      {writesEnabled ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-medium bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                          Writes Enabled
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full font-mono font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
+                          Read-Only
+                        </span>
+                      )}
+                    </h4>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Configure safety limits and human-in-the-loop approval thresholds for database writes.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Enable Writes Checkbox / Toggle */}
+                <label className="relative flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-zinc-700 bg-zinc-900 text-blue-600 focus:ring-blue-500 focus:ring-offset-zinc-950"
+                    disabled={isSubmitting || !isOwner}
+                    {...register("writes_enabled")}
+                  />
+                  <span className="text-xs font-medium text-zinc-300">
+                    Enable Writes
+                  </span>
+                </label>
+              </div>
+
+              {!isOwner && (
+                <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-center gap-2">
+                  <ShieldAlert className="h-4 w-4 shrink-0" />
+                  <span>Only the Project Owner can enable writes and adjust guardrail limits.</span>
+                </div>
+              )}
+
+              {writesEnabled && (
+                <div className="pt-2 border-t border-zinc-800/80 space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                    {/* Max Tables */}
+                    <div className="space-y-1">
+                      <Label htmlFor="max_tables" className="text-[11px] text-zinc-400">
+                        Max Tables per Change-Set
+                      </Label>
+                      <Input
+                        id="max_tables"
+                        type="number"
+                        min={1}
+                        max={5}
+                        disabled={isSubmitting || !isOwner}
+                        className="h-8 text-xs font-mono"
+                        {...register("max_tables_per_changeset")}
+                      />
+                      <span className="text-[10px] text-zinc-500">Between 1 and 5 tables</span>
+                      {errors.max_tables_per_changeset && (
+                        <p className="text-[10px] text-red-400">{errors.max_tables_per_changeset.message}</p>
+                      )}
+                    </div>
+
+                    {/* Max Total Rows */}
+                    <div className="space-y-1">
+                      <Label htmlFor="max_total_rows" className="text-[11px] text-zinc-400">
+                        Max Total Rows per Change-Set
+                      </Label>
+                      <Input
+                        id="max_total_rows"
+                        type="number"
+                        min={1}
+                        max={100}
+                        disabled={isSubmitting || !isOwner}
+                        className="h-8 text-xs font-mono"
+                        {...register("max_total_rows_per_changeset")}
+                      />
+                      <span className="text-[10px] text-zinc-500">Between 1 and 100 total rows</span>
+                      {errors.max_total_rows_per_changeset && (
+                        <p className="text-[10px] text-red-400">{errors.max_total_rows_per_changeset.message}</p>
+                      )}
+                    </div>
+
+                    {/* Max Insert Rows per Table */}
+                    <div className="space-y-1">
+                      <Label htmlFor="max_insert" className="text-[11px] text-zinc-400">
+                        Max INSERT Rows / Table
+                      </Label>
+                      <Input
+                        id="max_insert"
+                        type="number"
+                        min={1}
+                        max={50}
+                        disabled={isSubmitting || !isOwner}
+                        className="h-8 text-xs font-mono"
+                        {...register("max_insert_rows_per_table")}
+                      />
+                      <span className="text-[10px] text-zinc-500">Between 1 and 50 rows</span>
+                      {errors.max_insert_rows_per_table && (
+                        <p className="text-[10px] text-red-400">{errors.max_insert_rows_per_table.message}</p>
+                      )}
+                    </div>
+
+                    {/* Max Patch Rows per Table */}
+                    <div className="space-y-1">
+                      <Label htmlFor="max_patch" className="text-[11px] text-zinc-400">
+                        Max PATCH Rows / Table
+                      </Label>
+                      <Input
+                        id="max_patch"
+                        type="number"
+                        min={1}
+                        max={20}
+                        disabled={isSubmitting || !isOwner}
+                        className="h-8 text-xs font-mono"
+                        {...register("max_patch_rows_per_table")}
+                      />
+                      <span className="text-[10px] text-zinc-500">Between 1 and 20 rows</span>
+                      {errors.max_patch_rows_per_table && (
+                        <p className="text-[10px] text-red-400">{errors.max_patch_rows_per_table.message}</p>
+                      )}
+                    </div>
+
+                    {/* Approval Expiry Timeout */}
+                    <div className="space-y-1">
+                      <Label htmlFor="timeout" className="text-[11px] text-zinc-400">
+                        Approval Expiry (Minutes)
+                      </Label>
+                      <Input
+                        id="timeout"
+                        type="number"
+                        min={1}
+                        max={120}
+                        disabled={isSubmitting || !isOwner}
+                        className="h-8 text-xs font-mono"
+                        {...register("approval_timeout_minutes")}
+                      />
+                      <span className="text-[10px] text-zinc-500">1 to 120 mins (default 15)</span>
+                      {errors.approval_timeout_minutes && (
+                        <p className="text-[10px] text-red-400">{errors.approval_timeout_minutes.message}</p>
+                      )}
+                    </div>
+
+                    {/* Soft-Undo Retention Window */}
+                    <div className="space-y-1">
+                      <Label htmlFor="undo_window" className="text-[11px] text-zinc-400">
+                        Soft-Undo Window (Minutes)
+                      </Label>
+                      <Input
+                        id="undo_window"
+                        type="number"
+                        min={0}
+                        max={1440}
+                        disabled={isSubmitting || !isOwner}
+                        className="h-8 text-xs font-mono"
+                        {...register("undo_window_minutes")}
+                      />
+                      <span className="text-[10px] text-zinc-500">0 = disabled, up to 1440 mins</span>
+                      {errors.undo_window_minutes && (
+                        <p className="text-[10px] text-red-400">{errors.undo_window_minutes.message}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Blocked / Denylisted Tables */}
+                  <div className="space-y-1 pt-1">
+                    <Label htmlFor="blocked_tables" className="text-[11px] text-zinc-400">
+                      Blocked / Denylisted Tables
+                    </Label>
+                    <Input
+                      id="blocked_tables"
+                      placeholder="audit_log, migrations, credentials, auth_tokens"
+                      disabled={isSubmitting || !isOwner}
+                      className="h-8 text-xs font-mono"
+                      {...register("blocked_tables")}
+                    />
+                    <span className="text-[10px] text-zinc-500">
+                      Comma-separated list of sensitive tables that are strictly forbidden from any write operations.
+                    </span>
+                  </div>
+                </div>
               )}
             </div>
 

@@ -5,7 +5,7 @@ Agent domain — LangGraph graph state definition (ADR-0003).
 All fields are scoped by project_id, session_id, and connection_id.
 """
 
-from typing import Annotated, Any
+from typing import Annotated, Any, NotRequired
 from uuid import UUID
 
 from langgraph.graph.message import add_messages
@@ -46,4 +46,14 @@ class AgentState(TypedDict):
 
     # --- Multi-turn message history (LangGraph managed) ---
     messages: Annotated[list[Any], add_messages]
+
+    # --- Write / Mutation path (Phase 3 & Phase 4) ---
+    mutation_change_set: NotRequired[dict[str, Any] | None]
+    mutation_id: NotRequired[UUID | None]
+    mutation_status: NotRequired[str | None]
+    mutation_fields_pending: NotRequired[list[str] | None]
+    mutation_validation_error: NotRequired[str | None]
+    mutation_execution_result: NotRequired[dict[str, Any] | None]
+    dry_run: NotRequired[bool]
+
 
