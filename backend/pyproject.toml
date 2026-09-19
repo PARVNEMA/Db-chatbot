@@ -9,6 +9,11 @@ description = "Natural Language Database Querying Platform Backend API"
 readme = "README.md"
 requires-python = ">=3.11"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["alembic*", "tests*"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
