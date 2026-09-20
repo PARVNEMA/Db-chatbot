@@ -19,6 +19,8 @@ env/
 build/
 dist/
 *.egg-info/
+uv.lock
+
 
 # Testing & Linting caches
 .pytest_cache/

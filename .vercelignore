@@ -17,3 +17,5 @@ tasks
 pgdata
 *.sqlite
 *.sqlite3
+uv.lock
+*.lock
