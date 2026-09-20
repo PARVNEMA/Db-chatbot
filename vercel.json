@@ -18,19 +18,19 @@
       }
     },
     {
-      "source": "/health",
+      "source": "/health(.*)",
       "destination": {
         "service": "backend"
       }
     },
     {
-      "source": "/docs",
+      "source": "/docs(.*)",
       "destination": {
         "service": "backend"
       }
     },
     {
-      "source": "/redoc",
+      "source": "/redoc(.*)",
       "destination": {
         "service": "backend"
       }

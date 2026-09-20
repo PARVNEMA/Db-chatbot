@@ -126,6 +126,13 @@ def create_app() -> FastAPI:
             error=None,
         )
 
+    @app.get("/api/docs", include_in_schema=False)
+    @app.get(f"{settings.API_V1_PREFIX}/docs", include_in_schema=False)
+    async def redirect_to_docs() -> Response:
+        from fastapi.responses import RedirectResponse
+
+        return RedirectResponse(url="/docs")
+
     return app
 
 
