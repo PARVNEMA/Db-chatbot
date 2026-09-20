@@ -7,8 +7,7 @@
     },
     "backend": {
       "root": "backend",
-      "entrypoint": "main:app",
-      "installCommand": "pip install -r requirements.txt"
+      "entrypoint": "main:app"
     }
   },
   "rewrites": [

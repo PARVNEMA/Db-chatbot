@@ -1,16 +1,15 @@
 fastapi
-uvicorn[standard]
+uvicorn
 sqlalchemy[asyncio]
 asyncpg
 aiosqlite
 asyncmy
 alembic
-numpy
 pydantic[email]
 pydantic-settings
 email-validator
 langgraph
-langchain
+langchain-core
 langchain-anthropic
 langchain-huggingface
 huggingface-hub
@@ -21,8 +20,6 @@ python-jose[cryptography]
 passlib[bcrypt]
 cryptography
 langsmith
-# --- Logging ---
 structlog==24.4.0
-# --- Configuration ---
 python-dotenv==1.0.1
 sqlglot>=25.0.0
