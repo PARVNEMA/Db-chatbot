@@ -92,12 +92,16 @@ def _build_connect_args(
 ) -> dict[str, Any]:
     """Build dialect-specific connect_args with appropriate timeout parameters.
 
-    - asyncpg (PostgreSQL): uses ``timeout`` (seconds, float).
+    - asyncpg (PostgreSQL): uses ``timeout`` (seconds, float) and disables statement caching for poolers (PgBouncer/Supabase/Neon).
     - asyncmy (MySQL/MariaDB): uses ``connect_timeout`` (seconds, int).
     - aiosqlite (SQLite): no timeout args needed.
     """
     if "asyncpg" in normalized_url:
-        return {"timeout": float(timeout_seconds)}
+        return {
+            "timeout": float(timeout_seconds),
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+        }
     if "asyncmy" in normalized_url:
         return {"connect_timeout": int(timeout_seconds)}
     return {}

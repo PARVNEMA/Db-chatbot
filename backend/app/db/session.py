@@ -35,12 +35,19 @@ def _get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
         settings = get_settings()
+        connect_args = {}
+        if "postgresql" in settings.DATABASE_URL or "asyncpg" in settings.DATABASE_URL:
+            # Disable prepared statement caches when connecting through poolers like PgBouncer / Supabase / Neon / Render
+            connect_args["statement_cache_size"] = 0
+            connect_args["prepared_statement_cache_size"] = 0
+
         _engine = create_async_engine(
             settings.DATABASE_URL,
             pool_size=settings.DB_POOL_SIZE,
             max_overflow=settings.DB_MAX_OVERFLOW,
             pool_pre_ping=True,
             echo=settings.DB_ECHO,
+            connect_args=connect_args,
         )
     return _engine
 
