@@ -16,6 +16,7 @@ import {
   Globe,
   RefreshCw,
 } from "lucide-react";
+import { API_ROOT_URL } from "@/lib/constants";
 
 interface SSEEvent {
   id: string;
@@ -39,7 +40,7 @@ interface SearchResult {
 }
 
 export default function EmbeddingsDemoPage() {
-  const [apiUrl, setApiUrl] = useState("http://localhost:8000");
+  const [apiUrl, setApiUrl] = useState(API_ROOT_URL || "http://localhost:8000");
   const [projectId, setProjectId] = useState("");
   const [token, setToken] = useState("");
   
