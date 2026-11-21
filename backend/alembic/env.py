@@ -10,6 +10,7 @@ import os
 from logging.config import fileConfig
 
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 # Import all models so their metadata is registered for autogenerate
 import app.domain.auth.models  # noqa: F401
@@ -33,6 +34,10 @@ def get_database_url() -> str:
     url = os.getenv("DATABASE_URL") or settings.DATABASE_URL
     if not url:
         url = "postgresql+asyncpg://platform:change_me@postgres:5432/platform_db"
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
     return url
 
 
@@ -49,7 +54,18 @@ def run_migrations_offline() -> None:
 
 
 async def run_migrations_online() -> None:
-    connectable = create_async_engine(get_database_url())
+    url = get_database_url()
+    connect_args = {}
+    if "postgresql" in url or "asyncpg" in url:
+        # Disable prepared statement caches when connecting through poolers like PgBouncer / Supabase / Render
+        connect_args["statement_cache_size"] = 0
+        connect_args["prepared_statement_cache_size"] = 0
+
+    connectable = create_async_engine(
+        url,
+        poolclass=NullPool,
+        connect_args=connect_args,
+    )
     async with connectable.connect() as connection:
         await connection.run_sync(
             lambda sync_conn: context.configure(
