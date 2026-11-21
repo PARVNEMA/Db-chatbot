@@ -6,8 +6,9 @@ instead of calling os.environ directly.
 """
 
 import functools
+import json
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -66,7 +67,38 @@ class Settings(BaseSettings):
     FERNET_KEY: str = Field(default="q1M8rN0sK2vP4_tX6wZ8yB0cE2gH4jL6nQ8sU0wY2zA=")
 
     # --- CORS ---
-    CORS_ORIGINS: list[str] = Field(default=["http://localhost:3000"])
+    CORS_ORIGINS: list[str] = Field(
+        default=[
+            "http://localhost:3000",
+            "https://db-chatbot-mu.vercel.app",
+        ]
+    )
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                try:
+                    origins = json.loads(v)
+                except Exception:
+                    origins = [x.strip() for x in v.strip("[]").split(",") if x.strip()]
+            else:
+                origins = [x.strip() for x in v.split(",") if x.strip()]
+        elif isinstance(v, list):
+            origins = v
+        else:
+            return ["http://localhost:3000", "https://db-chatbot-mu.vercel.app"]
+
+        # Ensure no trailing slashes on origins, as browsers omit them in Origin header
+        normalized: list[str] = []
+        for origin in origins:
+            if isinstance(origin, str):
+                cleaned = origin.strip().rstrip("/")
+                if cleaned and cleaned not in normalized:
+                    normalized.append(cleaned)
+        return normalized
 
 
 @functools.lru_cache(maxsize=1)
