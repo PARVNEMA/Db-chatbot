@@ -60,7 +60,7 @@ def normalize_connection_url(conn_str: str) -> str:
     - mysql://...      -> mysql+asyncmy://... (if not already prefixed with mysql+)
     - mariadb://...    -> mariadb+asyncmy://... (if not already prefixed with mariadb+)
     """
-    trimmed = conn_str.strip()
+    trimmed = conn_str.strip().strip("'\"").strip()
     if trimmed.startswith("postgresql://"):
         return "postgresql+asyncpg://" + trimmed[len("postgresql://") :]
     if trimmed.startswith("postgres://"):

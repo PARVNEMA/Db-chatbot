@@ -269,5 +269,13 @@ ALTER TABLE schema_embeddings ALTER COLUMN embedding TYPE VECTOR(1024);
 
 UPDATE alembic_version SET version_num='e3f4a5b6c7d8' WHERE alembic_version.version_num = 'dbd5fb08f1aa';
 
+-- Running upgrade e3f4a5b6c7d8 -> f5a6b7c8d9e0
+
+DELETE FROM schema_embeddings;
+
+ALTER TABLE schema_embeddings ALTER COLUMN embedding TYPE VECTOR(384);
+
+UPDATE alembic_version SET version_num='f5a6b7c8d9e0' WHERE alembic_version.version_num = 'e3f4a5b6c7d8';
+
 COMMIT;
 
